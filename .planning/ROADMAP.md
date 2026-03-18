@@ -74,7 +74,12 @@ Plans:
   2. A keybinding `[var=in_vim:1]ctrl+w=close_surface` fires when `in_vim` equals `"1"` and falls through to the unconditional binding otherwise
   3. Setting a UserVar to a new value via OSC 1337 replaces the previous value without memory leaks
   4. UserVar exact match and glob match both work (e.g. `[var=mode:insert*]`)
-**Plans**: TBD
+**Plans:** 3 plans
+
+Plans:
+- [ ] 04-01-PLAN.md — OSC 1337 SetUserVar parser and stream dispatch
+- [ ] 04-02-PLAN.md — Base64 decode and mailbox messaging to Surface
+- [ ] 04-03-PLAN.md — RuntimeContext storage and glob pattern matching
 
 ### Phase 5: Window Title & Glob Matching
 **Goal**: Users can match on window title, and all condition types support glob wildcards for flexible pattern matching
