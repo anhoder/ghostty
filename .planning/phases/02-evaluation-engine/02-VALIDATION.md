@@ -2,7 +2,7 @@
 phase: 2
 slug: evaluation-engine
 status: draft
-nyquist_compliant: false
+nyquist_compliant: true
 wave_0_complete: false
 created: 2026-03-18
 ---
@@ -38,20 +38,24 @@ created: 2026-03-18
 
 | Task ID | Plan | Wave | Requirement | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|-----------|-------------------|-------------|--------|
-| 02-01-01 | 01 | 0 | PROC-01 | unit | `zig build test -Dtest-cmd=src/input/Binding.zig` | ❌ W0 | ⬜ pending |
-| 02-01-02 | 01 | 1 | PROC-01 | unit | `zig build test -Dtest-cmd=src/input/Binding.zig` | ❌ W0 | ⬜ pending |
-| 02-01-03 | 01 | 1 | PROC-01, PROC-05 | unit | `zig build test -Dtest-cmd=src/input/Binding.zig` | ❌ W0 | ⬜ pending |
-| 02-01-04 | 01 | 2 | PROC-01 | unit | `zig build test -Dtest-cmd=src/input/Binding.zig` | ❌ W0 | ⬜ pending |
+| 02-01-01 | 01 | 1 | PROC-01 | unit (TDD) | `zig build test -Dtest-cmd=src/input/Binding.zig` | ⬜ TDD (written in-task) | ⬜ pending |
+| 02-01-02 | 01 | 1 | PROC-01, PROC-05 | unit | `zig build test -Dtest-cmd=src/input/Binding.zig` | ✅ (created by Task 1) | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
 ---
 
-## Wave 0 Requirements
+## Test Creation Strategy
 
-- [ ] Tests for `RuntimeContext.matchesCondition` — match hit, miss, null context, priority ordering (PROC-01)
-- [ ] Tests for updated `getConditional` signature with `?*const RuntimeContext` (PROC-01)
-- [ ] Tests for `getEventConditional` with RuntimeContext — end-to-end keypress path (PROC-01)
+Task 1 is `tdd="true"` — tests are written RED before implementation within the same task (Wave 1). No separate Wave 0 task is needed because:
+- TDD task writes tests first (RED phase), then implements (GREEN phase)
+- Tests exist and run before implementation code is written
+- The Nyquist requirement (tests before code) is satisfied by the TDD workflow itself
+
+Tests created by Task 1:
+- `RuntimeContext.matchesCondition` — match hit, miss, null context, priority ordering (PROC-01)
+- Updated `getConditional` signature with `?*const RuntimeContext` (PROC-01)
+- `getEventConditional` with RuntimeContext — end-to-end keypress path (PROC-01)
 
 *All tests live in `src/input/Binding.zig` alongside existing conditional tests at line 5113+*
 
@@ -67,11 +71,11 @@ created: 2026-03-18
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 15s
+- [x] All tasks have `<automated>` verify commands that run tests (not just ast-check)
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Test creation covered by TDD task (no separate Wave 0 needed)
+- [x] No watch-mode flags
+- [x] Feedback latency < 15s
 - [ ] `nyquist_compliant: true` set in frontmatter
 
 **Approval:** pending
