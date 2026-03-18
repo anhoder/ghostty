@@ -2,8 +2,8 @@
 phase: 4
 slug: osc-1337-uservar-conditions
 status: draft
-nyquist_compliant: false
-wave_0_complete: false
+nyquist_compliant: true
+wave_0_complete: true
 created: 2026-03-18
 ---
 
@@ -38,12 +38,13 @@ created: 2026-03-18
 
 | Task ID | Plan | Wave | Requirement | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|-----------|-------------------|-------------|--------|
-| 04-01-01 | 01 | 1 | UVAR-02 | unit | `zig build test -Dtest-filter="iterm2"` | ✅ | ⬜ pending |
-| 04-01-02 | 01 | 1 | UVAR-02 | unit | `zig build test -Dtest-filter="osc"` | ✅ | ⬜ pending |
-| 04-01-03 | 01 | 1 | UVAR-02 | unit | `zig build test -Dtest-filter="stream"` | ✅ | ⬜ pending |
-| 04-02-01 | 02 | 1 | UVAR-03 | unit | `zig build test -Dtest-filter="Surface"` | ✅ | ⬜ pending |
-| 04-02-02 | 02 | 1 | UVAR-01 | unit | `zig build test -Dtest-filter="Binding"` | ✅ | ⬜ pending |
-| 04-02-03 | 02 | 1 | UVAR-04 | unit | `zig build test -Dtest-filter="Binding"` | ✅ | ⬜ pending |
+| 04-01-01 | 01 | 1 | UVAR-02 | unit | `zig ast-check src/terminal/osc/parsers/iterm2.zig` | ✅ | ⬜ pending |
+| 04-01-02 | 01 | 1 | UVAR-02 | unit | `zig ast-check src/terminal/osc.zig` | ✅ | ⬜ pending |
+| 04-01-03 | 01 | 1 | UVAR-02 | unit | `zig ast-check src/terminal/stream.zig && grep -n "set_user_var" src/terminal/stream.zig` | ✅ | ⬜ pending |
+| 04-02-01 | 02 | 2 | UVAR-03 | unit | `zig ast-check src/apprt/surface.zig && grep -n "set_user_var:" src/apprt/surface.zig` | ✅ | ⬜ pending |
+| 04-02-02 | 02 | 2 | UVAR-02 | unit | `zig ast-check src/termio/stream_handler.zig && grep -n "setUserVar" src/termio/stream_handler.zig` | ✅ | ⬜ pending |
+| 04-03-01 | 03 | 3 | UVAR-01 | unit | `zig ast-check src/Surface.zig && grep -n "set_user_var" src/Surface.zig` | ✅ | ⬜ pending |
+| 04-03-02 | 03 | 3 | UVAR-04 | unit | `zig ast-check src/input/Binding.zig && zig test src/input/Binding.zig -freference-trace` | ✅ | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -65,11 +66,11 @@ created: 2026-03-18
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 30s
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all MISSING references
+- [x] No watch-mode flags
+- [x] Feedback latency < 30s
+- [x] `nyquist_compliant: true` set in frontmatter
 
 **Approval:** pending
