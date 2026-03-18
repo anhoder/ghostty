@@ -1085,6 +1085,18 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
 
         .password_input => |v| try self.passwordInput(v),
 
+        .process_name_update => |update| {
+            defer self.alloc.free(update.name);
+
+            // Free old process name if exists
+            if (self.runtime_context.process_name) |old| {
+                self.alloc.free(old);
+            }
+
+            // Store new process name (duplicate to Surface's allocator)
+            self.runtime_context.process_name = try self.alloc.dupe(u8, update.name);
+        },
+
         .ring_bell => bell: {
             const now = std.time.Instant.now() catch unreachable;
             if (self.last_bell_time) |last| {
