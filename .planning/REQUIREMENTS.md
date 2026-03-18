@@ -17,8 +17,8 @@
 
 - [x] **PROC-01**: 用户可以基于前台进程名称精确匹配配置快捷键
 - [ ] **PROC-02**: 用户可以使用 glob 通配符模式匹配进程名称
-- [ ] **PROC-03**: 进程名检测在 macOS 上正常工作
-- [ ] **PROC-04**: 进程名检测在 Linux 上正常工作
+- [x] **PROC-03**: 进程名检测在 macOS 上正常工作
+- [x] **PROC-04**: 进程名检测在 Linux 上正常工作
 - [x] **PROC-05**: 按键路径上的进程检测不会引入可感知的延迟
 
 ### 窗口标题匹配 (TITL)
@@ -69,8 +69,8 @@
 | CONF-05 | Phase 1 | Complete |
 | PROC-01 | Phase 2 | Complete |
 | PROC-05 | Phase 2 | Complete |
-| PROC-03 | Phase 3 | Pending |
-| PROC-04 | Phase 3 | Pending |
+| PROC-03 | Phase 3 | Complete |
+| PROC-04 | Phase 3 | Complete |
 | UVAR-01 | Phase 4 | Pending |
 | UVAR-02 | Phase 4 | Pending |
 | UVAR-03 | Phase 4 | Pending |

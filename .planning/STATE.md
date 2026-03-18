@@ -2,21 +2,21 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: Phase 2 — Evaluation Engine (Plan 01 complete)
-status: planning
-last_updated: "2026-03-18T05:47:31.329Z"
+current_phase: Phase 3 — Process Name Detection (Plan 01 complete)
+status: executing
+last_updated: "2026-03-18T06:32:21Z"
 progress:
   total_phases: 6
   completed_phases: 2
-  total_plans: 3
-  completed_plans: 3
-  percent: 100
+  total_plans: 5
+  completed_plans: 4
+  percent: 80
 ---
 
 # Project State: Ghostty 条件性快捷键配置
 
 **Last updated:** 2026-03-18
-**Session:** 4
+**Session:** 5
 
 ---
 
@@ -30,12 +30,12 @@ progress:
 
 ## Current Position
 
-**Current phase:** Phase 2 — Evaluation Engine (Plan 01 complete)
-**Next phase:** Phase 3 — Process Name Detection
-**Status:** Ready to plan
+**Current phase:** Phase 3 — Process Name Detection (Plan 01 complete)
+**Next phase:** Phase 3 — Process Name Detection (Plan 02)
+**Status:** Executing
 
 ```
-Progress: [██████████] 100%
+Progress: [████████░░] 80%
 ```
 
 ---
@@ -45,8 +45,8 @@ Progress: [██████████] 100%
 | Phase | Status | Plans | Completed |
 |-------|--------|-------|-----------|
 | 1. Config Syntax & Parsing | Complete | 2/2 | 01-01, 01-02 |
-| 2. Evaluation Engine | In Progress | 1/? | 02-01 |
-| 3. Process Name Detection | Not started | 0/? | - |
+| 2. Evaluation Engine | Complete | 1/1 | 02-01 |
+| 3. Process Name Detection | In Progress | 2/2 | 03-01 |
 | 4. OSC 1337 & UserVar Conditions | Not started | 0/? | - |
 | 5. Window Title & Glob Matching | Not started | 0/? | - |
 | 6. Platform Validation & Documentation | Not started | 0/? | - |
@@ -72,6 +72,8 @@ Progress: [██████████] 100%
 | Deep-clone actions in conditional_bindings during Set.clone | Consistent with Leaf.clone behavior; prevents dangling pointers after original input freed | Implemented in 01-02 |
 | RuntimeContext uses ?*const RuntimeContext pointer | Avoids copy on every keypress; null means "no context available" | Implemented in 02-01 |
 | maybeHandleBinding restructured to leaf: labeled block | Avoids entry: type mismatch when root-set returns ConditionalResult instead of Set.Entry | Implemented in 02-01 |
+| Use WriteReq for process_name_update message | Consistent with pwd_change pattern; efficient string transfer via mailbox | Implemented in 03-01 |
+| Return null for unsupported platforms in process detection | Graceful degradation; no error propagation needed | Implemented in 03-01 |
 
 ### Open Questions (resolve before or during implementation)
 
@@ -97,11 +99,11 @@ Progress: [██████████] 100%
 | `src/input/Binding.zig` | RuntimeContext, matchesCondition, getConditional/getEventConditional with ?*const RuntimeContext — Phase 2 complete |
 | `src/config/Config.zig` | `Keybinds` struct — updated formatEntryDocs for conditional bindings |
 | `src/Surface.zig` | runtime_context field, maybeHandleBinding/keyEventIsBinding use getEventConditional — Phase 2 complete |
-| `src/termio/Exec.zig` | I/O thread, polling timer — Phase 3 |
-| `src/os/process.zig` | New file — platform process detection — Phase 3 |
+| `src/termio/Exec.zig` | I/O thread, polling timer — Phase 3 Plan 02 |
+| `src/os/process.zig` | Platform process detection — Phase 3 Plan 01 complete |
+| `src/apprt/surface.zig` | `Message` union with process_name_update — Phase 3 Plan 01 complete |
 | `src/terminal/osc/parsers/iterm2.zig` | `SetUserVar` stub — Phase 4 |
 | `src/termio/stream_handler.zig` | OSC dispatch — Phase 4 |
-| `src/apprt/surface.zig` | `Message` union — Phases 3 & 4 |
 
 ---
 
@@ -136,6 +138,14 @@ Progress: [██████████] 100%
 - Added Surface.runtime_context field; wired both root-set call sites to getEventConditional
 - Restructured maybeHandleBinding to leaf: block (deviation from plan — required by type system)
 - Stopped at: Completed 02-evaluation-engine-02-01-PLAN.md
+
+### Session 5 — 2026-03-18
+- Executed plan 03-01: Process detection infrastructure
+- Created src/os/process.zig with getForegroundProcessName API
+- Linux: tcgetpgrp + /proc/<pid>/comm lookup
+- macOS: tcgetpgrp + libproc proc_pidinfo
+- Added process_name_update message type to surface.zig
+- Stopped at: Completed 03-process-name-detection-03-01-PLAN.md
 
 ---
 *State initialized: 2026-03-18*
