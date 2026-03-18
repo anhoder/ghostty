@@ -819,6 +819,16 @@ pub fn deinit(self: *Surface) void {
     // Clean up our font grid
     self.app.font_grid_set.deref(self.font_grid_key);
 
+    // Clean up user variables from OSC 1337 SetUserVar
+    if (self.runtime_context.user_vars) |*vars| {
+        var it = vars.iterator();
+        while (it.next()) |entry| {
+            self.alloc.free(entry.key_ptr.*);
+            self.alloc.free(entry.value_ptr.*);
+        }
+        vars.deinit(self.alloc);
+    }
+
     // Clean up our render state
     if (self.renderer_state.preedit) |p| self.alloc.free(p.codepoints);
     self.alloc.destroy(self.renderer_state.mutex);
@@ -1095,6 +1105,30 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
 
             // Store new process name (duplicate to Surface's allocator)
             self.runtime_context.process_name = try self.alloc.dupe(u8, update.name);
+        },
+
+        .set_user_var => |uvar| {
+            // Lazy-init the hashmap on first use
+            if (self.runtime_context.user_vars == null) {
+                self.runtime_context.user_vars = .{};
+            }
+
+            const var_name = std.mem.sliceTo(&uvar.name, 0);
+            const var_value = std.mem.sliceTo(&uvar.value, 0);
+
+            // Free old key+value if this variable already exists
+            if (self.runtime_context.user_vars.?.fetchRemove(var_name)) |kv| {
+                self.alloc.free(kv.key);
+                self.alloc.free(kv.value);
+            }
+
+            // Duplicate name and value into Surface's allocator
+            const name_owned = try self.alloc.dupe(u8, var_name);
+            errdefer self.alloc.free(name_owned);
+            const value_owned = try self.alloc.dupe(u8, var_value);
+            errdefer self.alloc.free(value_owned);
+
+            try self.runtime_context.user_vars.?.put(self.alloc, name_owned, value_owned);
         },
 
         .ring_bell => bell: {
