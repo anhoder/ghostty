@@ -154,6 +154,39 @@ pub fn parse(parser: *Parser, _: ?u8) ?*Command {
             return &parser.command;
         },
 
+        .SetUserVar => {
+            // Wire format: SetUserVar=<name>=<base64-value>
+            // value_ here is everything after the first '=' (i.e. "<name>=<base64-value>")
+            const value = value_ orelse {
+                parser.command = .invalid;
+                return null;
+            };
+
+            // Split on the first '=' to separate name from base64 data
+            const sep = std.mem.indexOfScalar(u8, value, '=') orelse {
+                parser.command = .invalid;
+                return null;
+            };
+
+            // Null-terminate the name by writing 0 at the separator position
+            value[sep] = 0;
+            const var_name: [:0]u8 = value[0..sep :0];
+            const var_data: [:0]u8 = value[sep + 1 .. value.len :0];
+
+            if (var_name.len == 0 or var_data.len == 0) {
+                parser.command = .invalid;
+                return null;
+            }
+
+            parser.command = .{
+                .set_user_var = .{
+                    .name = var_name,
+                    .data = var_data,
+                },
+            };
+            return &parser.command;
+        },
+
         .AddAnnotation,
         .AddHiddenAnnotation,
         .Block,
@@ -184,7 +217,6 @@ pub fn parse(parser: *Parser, _: ?u8) ?*Command {
         .SetKeyLabel,
         .SetMark,
         .SetProfile,
-        .SetUserVar,
         .ShellIntegrationVersion,
         .StealFocus,
         .UnicodeVersion,
@@ -418,6 +450,70 @@ test "OSC: 1337: test CurrentDir with empty value" {
     for (input) |ch| p.next(ch);
 
     try testing.expect(p.end('\x1b') == null);
+}
+
+test "OSC: 1337: test SetUserVar with no value" {
+    const testing = std.testing;
+
+    var p: Parser = .init(testing.allocator);
+    defer p.deinit();
+
+    const input = "1337;SetUserVar";
+    for (input) |ch| p.next(ch);
+
+    try testing.expect(p.end('\x1b') == null);
+}
+
+test "OSC: 1337: test SetUserVar with missing separator" {
+    const testing = std.testing;
+
+    var p: Parser = .init(testing.allocator);
+    defer p.deinit();
+
+    const input = "1337;SetUserVar=nameonly";
+    for (input) |ch| p.next(ch);
+
+    try testing.expect(p.end('\x1b') == null);
+}
+
+test "OSC: 1337: test SetUserVar with empty name" {
+    const testing = std.testing;
+
+    var p: Parser = .init(testing.allocator);
+    defer p.deinit();
+
+    const input = "1337;SetUserVar==dmFsdWU=";
+    for (input) |ch| p.next(ch);
+
+    try testing.expect(p.end('\x1b') == null);
+}
+
+test "OSC: 1337: test SetUserVar with empty data" {
+    const testing = std.testing;
+
+    var p: Parser = .init(testing.allocator);
+    defer p.deinit();
+
+    const input = "1337;SetUserVar=myvar=";
+    for (input) |ch| p.next(ch);
+
+    try testing.expect(p.end('\x1b') == null);
+}
+
+test "OSC: 1337: test SetUserVar with valid name and base64 data" {
+    const testing = std.testing;
+
+    var p: Parser = .init(testing.allocator);
+    defer p.deinit();
+
+    // SetUserVar=myvar=dmFsdWU= (value = base64("value"))
+    const input = "1337;SetUserVar=myvar=dmFsdWU=";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end('\x1b').?.*;
+    try testing.expect(cmd == .set_user_var);
+    try testing.expectEqualStrings("myvar", cmd.set_user_var.name);
+    try testing.expectEqualStrings("dmFsdWU=", cmd.set_user_var.data);
 }
 
 test "OSC: 1337: test CurrentDir with non-empty value" {
