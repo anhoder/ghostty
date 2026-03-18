@@ -4816,6 +4816,7 @@ test "set: formatEntries leaf_chained multiple chains" {
 }
 
 test "set: formatEntries leaf_chained with text action" {
+
     const testing = std.testing;
     const alloc = testing.allocator;
     const formatterpkg = @import("../config/formatter.zig");
@@ -4844,4 +4845,69 @@ test "set: formatEntries leaf_chained with text action" {
         \\
     ;
     try testing.expectEqualStrings(expected, output.written());
+}
+
+test "parse: conditional bindings" {
+    const testing = std.testing;
+
+    // process condition
+    {
+        const b = try parseSingle("[process=vim]ctrl+w=close_surface");
+        try testing.expectEqualStrings("vim", b.condition.?.process);
+    }
+
+    // title condition with colon in value
+    {
+        const b = try parseSingle("[title=vim: main.zig]ctrl+s=write_scrollback_file");
+        try testing.expectEqualStrings("vim: main.zig", b.condition.?.title);
+    }
+
+    // var condition
+    {
+        const b = try parseSingle("[var=in_vim:1]ctrl+w=close_surface");
+        try testing.expectEqualStrings("in_vim", b.condition.?.var_.name);
+        try testing.expectEqualStrings("1", b.condition.?.var_.value);
+    }
+
+    // condition with global flag
+    {
+        const b = try parseSingle("[process=vim]global:ctrl+w=close_surface");
+        try testing.expectEqualStrings("vim", b.condition.?.process);
+        try testing.expect(b.flags.global);
+    }
+
+    // condition with all flag
+    {
+        const b = try parseSingle("[process=vim]all:ctrl+w=close_surface");
+        try testing.expectEqualStrings("vim", b.condition.?.process);
+        try testing.expect(b.flags.all);
+    }
+
+    // no condition (existing behavior unchanged)
+    {
+        const b = try parseSingle("ctrl+w=close_surface");
+        try testing.expect(b.condition == null);
+    }
+}
+
+test "parse: conditional errors" {
+    const testing = std.testing;
+
+    // empty value
+    try testing.expectError(error.InvalidFormat, parseSingle("[process=]ctrl+w=close_surface"));
+
+    // empty type
+    try testing.expectError(error.InvalidFormat, parseSingle("[=vim]ctrl+w=close_surface"));
+
+    // empty brackets
+    try testing.expectError(error.InvalidFormat, parseSingle("[]ctrl+w=close_surface"));
+
+    // unknown condition type
+    try testing.expectError(error.InvalidFormat, parseSingle("[unknown=foo]ctrl+w=close_surface"));
+
+    // unclosed bracket
+    try testing.expectError(error.InvalidFormat, parseSingle("[process=vim"));
+
+    // multiple conditions (v1: not supported)
+    try testing.expectError(error.InvalidFormat, parseSingle("[process=vim][title=foo]ctrl+w=close_surface"));
 }
