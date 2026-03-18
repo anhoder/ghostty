@@ -11,7 +11,7 @@
 
 - [x] **Phase 1: Config Syntax & Parsing** - Extend the keybind parser with conditional syntax; establish ConditionSet data model (completed 2026-03-18)
 - [x] **Phase 2: Evaluation Engine** - Wire RuntimeContext into Surface and implement condition evaluation on the keypress path (completed 2026-03-18)
-- [ ] **Phase 3: Process Name Detection** - Platform-specific foreground process polling; end-to-end process-name exact match
+- [x] **Phase 3: Process Name Detection** - Platform-specific foreground process polling; end-to-end process-name exact match (completed 2026-03-18)
 - [ ] **Phase 4: OSC 1337 & UserVar Conditions** - Implement SetUserVar pipeline; add UserVar condition type
 - [ ] **Phase 5: Window Title & Glob Matching** - Add window_title condition type; add glob pattern support for all condition types
 - [ ] **Phase 6: Platform Validation & Documentation** - Cross-platform verification; keybind doc comment update
@@ -59,7 +59,7 @@ Plans:
   2. Opening vim in a Ghostty terminal on Linux causes `RuntimeContext.process_name` to update to `"vim"` within ~200ms
   3. Exiting vim and returning to the shell updates the process name back to the shell name within ~200ms
   4. When process detection is unavailable (e.g. Flatpak sandbox), Ghostty logs a one-time warning and treats all `process=` conditions as non-matching rather than crashing
-**Plans:** 2 plans
+**Plans:** 2/2 plans complete
 
 
 Plans:
@@ -106,7 +106,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 1. Config Syntax & Parsing | 2/2 | Complete   | 2026-03-18 |
 | 2. Evaluation Engine | 1/1 | Complete   | 2026-03-18 |
-| 3. Process Name Detection | 0/? | Not started | - |
+| 3. Process Name Detection | 2/2 | Complete   | 2026-03-18 |
 | 4. OSC 1337 & UserVar Conditions | 0/? | Not started | - |
 | 5. Window Title & Glob Matching | 0/? | Not started | - |
 | 6. Platform Validation & Documentation | 0/? | Not started | - |
