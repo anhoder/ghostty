@@ -68,18 +68,18 @@
 | CONF-04 | Phase 1 | Pending |
 | CONF-05 | Phase 1 | Pending |
 | PROC-01 | Phase 2 | Pending |
-| PROC-02 | Phase 2 | Pending |
-| PROC-03 | Phase 2 | Pending |
-| PROC-04 | Phase 2 | Pending |
 | PROC-05 | Phase 2 | Pending |
-| TITL-01 | Phase 3 | Pending |
-| TITL-02 | Phase 3 | Pending |
+| PROC-03 | Phase 3 | Pending |
+| PROC-04 | Phase 3 | Pending |
 | UVAR-01 | Phase 4 | Pending |
 | UVAR-02 | Phase 4 | Pending |
 | UVAR-03 | Phase 4 | Pending |
 | UVAR-04 | Phase 4 | Pending |
-| PLAT-01 | Phase 5 | Pending |
-| PLAT-02 | Phase 5 | Pending |
+| TITL-01 | Phase 5 | Pending |
+| TITL-02 | Phase 5 | Pending |
+| PROC-02 | Phase 5 | Pending |
+| PLAT-01 | Phase 6 | Pending |
+| PLAT-02 | Phase 6 | Pending |
 
 **Coverage:**
 - v1 requirements: 18 total
@@ -88,4 +88,4 @@
 
 ---
 *Requirements defined: 2026-03-18*
-*Last updated: 2026-03-18 after initial definition*
+*Last updated: 2026-03-18 after roadmap creation*

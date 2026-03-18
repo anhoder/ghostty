@@ -1,0 +1,97 @@
+# Project State: Ghostty 条件性快捷键配置
+
+**Last updated:** 2026-03-18
+**Session:** 1
+
+---
+
+## Project Reference
+
+**Core value:** 用户可以根据当前运行的程序、窗口标题或用户变量动态切换快捷键绑定
+**Repo:** /Users/anhoder/Desktop/ghostty
+**Planning dir:** .planning/
+
+---
+
+## Current Position
+
+**Current phase:** Phase 1 — Config Syntax & Parsing
+**Current plan:** None (not started)
+**Status:** Not started
+
+```
+Progress: [░░░░░░░░░░░░░░░░░░░░] 0% (0/6 phases)
+```
+
+---
+
+## Phase Status
+
+| Phase | Status | Plans | Completed |
+|-------|--------|-------|-----------|
+| 1. Config Syntax & Parsing | Not started | 0/? | - |
+| 2. Evaluation Engine | Not started | 0/? | - |
+| 3. Process Name Detection | Not started | 0/? | - |
+| 4. OSC 1337 & UserVar Conditions | Not started | 0/? | - |
+| 5. Window Title & Glob Matching | Not started | 0/? | - |
+| 6. Platform Validation & Documentation | Not started | 0/? | - |
+
+---
+
+## Accumulated Context
+
+### Key Decisions
+
+| Decision | Rationale | Status |
+|----------|-----------|--------|
+| Bracket syntax `[process=vim]` for conditions | Avoids collision with existing `=`, `:`, `>`, `/` delimiters in keybind parser | Pending maintainer confirmation |
+| Separate `RuntimeContext` struct on `Surface` | `conditional.State` is intentionally static (config-time only); runtime state needs its own struct | Confirmed by research |
+| 200ms async polling via xev timer in `Exec.zig` | Matches existing `TERMIOS_POLL_MS`; keeps keypress path syscall-free | Confirmed by research |
+| Conditional bindings stored in `ConditionSet`, not `Binding.Set` | Clean overlay model; no modification to existing binding infrastructure | Confirmed by research |
+| Glob compiled at config-load time | Prevents per-keypress pattern compilation (50–500 µs regression) | Confirmed by research |
+
+### Open Questions (resolve before or during implementation)
+
+1. **Config syntax delimiter:** `when:process=vim>ctrl+w=action` vs `[process=vim]ctrl+w=action` — needs maintainer input before Phase 1
+2. **`std.fs.path.match` vs custom glob:** Verify whether stdlib glob handles `*`/`?` without path-separator semantics for process names
+3. **UserVar allocator strategy:** Use `Surface`'s GPA allocator; explicit dealloc on `deinit` and on key replacement
+4. **Config-defined vs OSC-set UserVar precedence:** OSC takes precedence (runtime overrides static config)
+5. **Flatpak degradation:** Log one-time warning at startup; treat `process=` conditions as always-false when detection unavailable
+
+### Known Risks
+
+| Risk | Severity | Mitigation |
+|------|----------|------------|
+| Per-keypress syscall latency | HIGH | Cache all state; update only via mailbox + 200ms timer |
+| Config syntax delimiter collision | HIGH | Use bracket prefix; run full Binding.zig test suite before merge |
+| Process-change race condition | HIGH | Accept ~1–5ms window; document it; recommend UserVar for latency-critical cases |
+| Config reload with active key table | MEDIUM | Call `deactivateAllKeyTables()` before swapping config |
+
+### Key Files
+
+| File | Role |
+|------|------|
+| `src/input/Binding.zig` | Keybind parser — Phase 1 extension point |
+| `src/config/Config.zig` | `Keybinds` struct, `parseCLI` — Phase 1 |
+| `src/Surface.zig` | `maybeHandleBinding`, `RuntimeContext` — Phase 2 |
+| `src/termio/Exec.zig` | I/O thread, polling timer — Phase 3 |
+| `src/os/process.zig` | New file — platform process detection — Phase 3 |
+| `src/terminal/osc/parsers/iterm2.zig` | `SetUserVar` stub — Phase 4 |
+| `src/termio/stream_handler.zig` | OSC dispatch — Phase 4 |
+| `src/apprt/surface.zig` | `Message` union — Phases 3 & 4 |
+| `src/input/ConditionSet.zig` | New file — condition storage — Phase 1 |
+| `src/input/condition_eval.zig` | New file — pure evaluator — Phase 2 |
+
+---
+
+## Session Log
+
+### Session 1 — 2026-03-18
+- Initialized project via `/gsd:new-project`
+- Research completed (HIGH confidence)
+- Requirements defined: 18 v1, 4 v2
+- Roadmap created: 6 phases, 18/18 requirements mapped
+- Next: `/gsd:plan-phase 1`
+
+---
+*State initialized: 2026-03-18*
