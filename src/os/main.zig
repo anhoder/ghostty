@@ -26,6 +26,7 @@ pub const i18n = @import("i18n.zig");
 pub const mach = @import("mach.zig");
 pub const path = @import("path.zig");
 pub const passwd = @import("passwd.zig");
+pub const process = @import("process.zig");
 pub const xdg = @import("xdg.zig");
 pub const windows = @import("windows.zig");
 pub const macos = @import("macos.zig");
