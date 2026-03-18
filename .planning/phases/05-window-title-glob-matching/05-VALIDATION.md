@@ -2,8 +2,8 @@
 phase: 5
 slug: window-title-glob-matching
 status: draft
-nyquist_compliant: false
-wave_0_complete: false
+nyquist_compliant: true
+wave_0_complete: true
 created: 2026-03-18
 ---
 
@@ -36,26 +36,27 @@ created: 2026-03-18
 
 ## Per-Task Verification Map
 
-| Task ID | Plan | Wave | Requirement | Test Type | Automated Command | File Exists | Status |
-|---------|------|------|-------------|-----------|-------------------|-------------|--------|
-| 05-01-01 | 01 | 1 | TITL-01 | unit | `zig ast-check src/Surface.zig` | ❌ W0 | ⬜ pending |
-| 05-01-02 | 01 | 1 | TITL-01 | unit | `zig build test -Dtest-cmd="src/input/Binding.zig"` | ❌ W0 | ⬜ pending |
-| 05-02-01 | 02 | 2 | TITL-02, PROC-02 | unit | `zig build test -Dtest-cmd="src/input/Binding.zig"` | ❌ W0 | ⬜ pending |
+| Task ID | Plan | Wave | Requirement | Test Type | Automated Command | Wave 0 | Status |
+|---------|------|------|-------------|-----------|-------------------|--------|--------|
+| 05-01-00 | 01 | 1 | TITL-01, TITL-02, PROC-02 | unit | `zig ast-check src/input/Binding.zig` | W0 (creates stubs) | pending |
+| 05-01-01 | 01 | 1 | TITL-01 | syntax | `zig ast-check src/Surface.zig` | n/a (Surface wiring) | pending |
+| 05-01-02 | 01 | 1 | TITL-01, TITL-02, PROC-02 | unit | `zig build test -Dtest-cmd="src/input/Binding.zig"` | consumes W0 stubs | pending |
 
-*Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
+*Status: pending / green / red / flaky*
 
 ---
 
 ## Wave 0 Requirements
 
-- [ ] Extend `test "RuntimeContext: matchesCondition"` in `src/input/Binding.zig` to cover:
+- [x] Task 0 writes failing test stubs in `src/input/Binding.zig` covering:
   - `[title=vim: main.zig]` exact match (TITL-01)
   - `[title=vim:*]` glob match (TITL-02)
   - `[process=nvim*]` glob match (PROC-02)
-- [ ] Add `test "RuntimeContext: matchesCondition title/process glob patterns"` block covering wildcard edge cases
-- [ ] No new test files needed — all tests belong in existing `Binding.zig` test suite
+- [x] Test block `"RuntimeContext: matchesCondition title/process glob patterns"` covers wildcard edge cases
+- [x] No new test files needed — all tests belong in existing `Binding.zig` test suite
+- [x] Wave 0 is Task 0 in plan 05-01 — executes before Tasks 1 and 2
 
-*Existing infrastructure covers framework needs. Only test cases need adding.*
+*Wave 0 addressed by Task 0 in 05-01-PLAN.md. Test stubs written before production code changes.*
 
 ---
 
@@ -69,11 +70,11 @@ created: 2026-03-18
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 15s
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all MISSING references (Task 0 creates stubs)
+- [x] No watch-mode flags
+- [x] Feedback latency < 15s
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** approved
