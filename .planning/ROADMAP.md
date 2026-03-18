@@ -10,7 +10,7 @@
 ## Phases
 
 - [x] **Phase 1: Config Syntax & Parsing** - Extend the keybind parser with conditional syntax; establish ConditionSet data model (completed 2026-03-18)
-- [ ] **Phase 2: Evaluation Engine** - Wire RuntimeContext into Surface and implement condition evaluation on the keypress path
+- [x] **Phase 2: Evaluation Engine** - Wire RuntimeContext into Surface and implement condition evaluation on the keypress path (completed 2026-03-18)
 - [ ] **Phase 3: Process Name Detection** - Platform-specific foreground process polling; end-to-end process-name exact match
 - [ ] **Phase 4: OSC 1337 & UserVar Conditions** - Implement SetUserVar pipeline; add UserVar condition type
 - [ ] **Phase 5: Window Title & Glob Matching** - Add window_title condition type; add glob pattern support for all condition types
@@ -45,7 +45,7 @@ Plans:
   2. When no condition matches, the unconditional binding fires as before — no regression
   3. Keypress latency is not measurably affected (condition evaluation reads only in-memory strings, no syscalls)
   4. Unit tests cover: match hit, match miss, empty context, and priority ordering
-**Plans:** 1 plan
+**Plans:** 1/1 plans complete
 
 Plans:
 - [ ] 02-01-PLAN.md — RuntimeContext struct, matchesCondition, signature refactor, Surface integration
@@ -101,7 +101,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Config Syntax & Parsing | 2/2 | Complete   | 2026-03-18 |
-| 2. Evaluation Engine | 0/1 | Planning complete | - |
+| 2. Evaluation Engine | 1/1 | Complete   | 2026-03-18 |
 | 3. Process Name Detection | 0/? | Not started | - |
 | 4. OSC 1337 & UserVar Conditions | 0/? | Not started | - |
 | 5. Window Title & Glob Matching | 0/? | Not started | - |

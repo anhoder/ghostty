@@ -2,21 +2,21 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: Phase 1 — Config Syntax & Parsing (COMPLETE)
-status: planning
-last_updated: "2026-03-18T04:39:22.894Z"
+current_phase: Phase 2 — Evaluation Engine (In Progress)
+status: in_progress
+last_updated: "2026-03-18T05:40:48Z"
 progress:
   total_phases: 6
   completed_phases: 1
-  total_plans: 2
-  completed_plans: 2
+  total_plans: 3
+  completed_plans: 3
   percent: 100
 ---
 
 # Project State: Ghostty 条件性快捷键配置
 
 **Last updated:** 2026-03-18
-**Session:** 3
+**Session:** 4
 
 ---
 
@@ -30,9 +30,9 @@ progress:
 
 ## Current Position
 
-**Current phase:** Phase 1 — Config Syntax & Parsing (COMPLETE)
-**Next phase:** Phase 2 — Evaluation Engine
-**Status:** Ready to plan
+**Current phase:** Phase 2 — Evaluation Engine (Plan 01 complete)
+**Next phase:** Phase 3 — Process Name Detection
+**Status:** Phase 2 plan 01 done; ready for next plan or phase
 
 ```
 Progress: [██████████] 100%
@@ -45,7 +45,7 @@ Progress: [██████████] 100%
 | Phase | Status | Plans | Completed |
 |-------|--------|-------|-----------|
 | 1. Config Syntax & Parsing | Complete | 2/2 | 01-01, 01-02 |
-| 2. Evaluation Engine | Not started | 0/? | - |
+| 2. Evaluation Engine | In Progress | 1/? | 02-01 |
 | 3. Process Name Detection | Not started | 0/? | - |
 | 4. OSC 1337 & UserVar Conditions | Not started | 0/? | - |
 | 5. Window Title & Glob Matching | Not started | 0/? | - |
@@ -70,6 +70,8 @@ Progress: [██████████] 100%
 | Separate conditional_bindings list on Set | Allows same trigger with different conditions to coexist without modifying unconditional HashMap | Implemented in 01-02 |
 | getConditional returns null for .leader/.leaf_chained | Sequences not supported for conditional bindings in Phase 1; callers use existing get()/getEvent() | Implemented in 01-02 |
 | Deep-clone actions in conditional_bindings during Set.clone | Consistent with Leaf.clone behavior; prevents dangling pointers after original input freed | Implemented in 01-02 |
+| RuntimeContext uses ?*const RuntimeContext pointer | Avoids copy on every keypress; null means "no context available" | Implemented in 02-01 |
+| maybeHandleBinding restructured to leaf: labeled block | Avoids entry: type mismatch when root-set returns ConditionalResult instead of Set.Entry | Implemented in 02-01 |
 
 ### Open Questions (resolve before or during implementation)
 
@@ -92,15 +94,14 @@ Progress: [██████████] 100%
 
 | File | Role |
 |------|------|
-| `src/input/Binding.zig` | Keybind parser — Phase 1 complete (Condition, conditional_bindings, getConditional) |
+| `src/input/Binding.zig` | RuntimeContext, matchesCondition, getConditional/getEventConditional with ?*const RuntimeContext — Phase 2 complete |
 | `src/config/Config.zig` | `Keybinds` struct — updated formatEntryDocs for conditional bindings |
-| `src/Surface.zig` | `maybeHandleBinding`, `RuntimeContext` — Phase 2 |
+| `src/Surface.zig` | runtime_context field, maybeHandleBinding/keyEventIsBinding use getEventConditional — Phase 2 complete |
 | `src/termio/Exec.zig` | I/O thread, polling timer — Phase 3 |
 | `src/os/process.zig` | New file — platform process detection — Phase 3 |
 | `src/terminal/osc/parsers/iterm2.zig` | `SetUserVar` stub — Phase 4 |
 | `src/termio/stream_handler.zig` | OSC dispatch — Phase 4 |
 | `src/apprt/surface.zig` | `Message` union — Phases 3 & 4 |
-| `src/input/condition_eval.zig` | New file — pure evaluator — Phase 2 |
 
 ---
 
@@ -127,6 +128,14 @@ Progress: [██████████] 100%
 - Fixed formatEntryDocs to include conditional bindings in config output
 - Phase 1 complete — all 2 plans done
 - Stopped at: Completed 01-config-syntax-parsing-01-02-PLAN.md
+
+### Session 4 — 2026-03-18
+- Executed plan 02-01: RuntimeContext and Surface integration
+- Added RuntimeContext struct with matchesCondition (zero-alloc, zero-syscall)
+- Refactored getConditional/getEventConditional to ?*const RuntimeContext
+- Added Surface.runtime_context field; wired both root-set call sites to getEventConditional
+- Restructured maybeHandleBinding to leaf: block (deviation from plan — required by type system)
+- Stopped at: Completed 02-evaluation-engine-02-01-PLAN.md
 
 ---
 *State initialized: 2026-03-18*
