@@ -35,6 +35,7 @@
 Plans:
 - [ ] 01-01-PLAN.md — Define Condition tagged union, parseCondition(), extend Parser/Binding structs
 - [ ] 01-02-PLAN.md — Extend Set storage for conditional bindings, last-write-wins, coexistence model
+
 ### Phase 2: Evaluation Engine
 **Goal**: Conditional bindings are evaluated on every keypress using cached runtime state, with correct priority and zero syscalls on the hot path
 **Depends on**: Phase 1
@@ -44,7 +45,10 @@ Plans:
   2. When no condition matches, the unconditional binding fires as before — no regression
   3. Keypress latency is not measurably affected (condition evaluation reads only in-memory strings, no syscalls)
   4. Unit tests cover: match hit, match miss, empty context, and priority ordering
-**Plans**: TBD
+**Plans:** 1 plan
+
+Plans:
+- [ ] 02-01-PLAN.md — RuntimeContext struct, matchesCondition, signature refactor, Surface integration
 
 ### Phase 3: Process Name Detection
 **Goal**: Ghostty detects the foreground process name asynchronously and keeps RuntimeContext current, on both macOS and Linux
@@ -97,7 +101,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Config Syntax & Parsing | 2/2 | Complete   | 2026-03-18 |
-| 2. Evaluation Engine | 0/? | Not started | - |
+| 2. Evaluation Engine | 0/1 | Planning complete | - |
 | 3. Process Name Detection | 0/? | Not started | - |
 | 4. OSC 1337 & UserVar Conditions | 0/? | Not started | - |
 | 5. Window Title & Glob Matching | 0/? | Not started | - |
