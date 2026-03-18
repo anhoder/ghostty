@@ -5346,6 +5346,38 @@ test "RuntimeContext: matchesCondition" {
     }
 }
 
+test "RuntimeContext: matchesCondition var_ glob patterns" {
+    const testing = std.testing;
+
+    var vars: std.StringHashMapUnmanaged([]const u8) = .{};
+    defer vars.deinit(testing.allocator);
+    try vars.put(testing.allocator, "mode", "insert");
+    try vars.put(testing.allocator, "env", "production-us-east-1");
+    const ctx: RuntimeContext = .{ .user_vars = vars };
+
+    // Exact match (no wildcards) — fast path
+    try testing.expect(ctx.matchesCondition(.{ .var_ = .{ .name = "mode", .value = "insert" } }));
+    try testing.expect(!ctx.matchesCondition(.{ .var_ = .{ .name = "mode", .value = "normal" } }));
+
+    // Glob: * matches zero or more characters
+    try testing.expect(ctx.matchesCondition(.{ .var_ = .{ .name = "mode", .value = "insert*" } }));
+    try testing.expect(ctx.matchesCondition(.{ .var_ = .{ .name = "mode", .value = "ins*" } }));
+    try testing.expect(ctx.matchesCondition(.{ .var_ = .{ .name = "mode", .value = "*" } }));
+    try testing.expect(!ctx.matchesCondition(.{ .var_ = .{ .name = "mode", .value = "normal*" } }));
+
+    // Glob: ? matches exactly one character
+    try testing.expect(ctx.matchesCondition(.{ .var_ = .{ .name = "mode", .value = "inser?" } }));
+    try testing.expect(!ctx.matchesCondition(.{ .var_ = .{ .name = "mode", .value = "insert?" } }));
+
+    // Glob: complex pattern with * in the middle
+    try testing.expect(ctx.matchesCondition(.{ .var_ = .{ .name = "env", .value = "production-*" } }));
+    try testing.expect(ctx.matchesCondition(.{ .var_ = .{ .name = "env", .value = "*-us-*" } }));
+    try testing.expect(!ctx.matchesCondition(.{ .var_ = .{ .name = "env", .value = "staging-*" } }));
+
+    // Missing variable returns false even with glob
+    try testing.expect(!ctx.matchesCondition(.{ .var_ = .{ .name = "missing", .value = "*" } }));
+}
+
 test "set: getConditional priority" {
     const testing = std.testing;
     const alloc = testing.allocator;
