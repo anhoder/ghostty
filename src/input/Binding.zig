@@ -22,9 +22,31 @@ action: Action,
 /// Boolean flags that can be set per binding.
 flags: Flags = .{},
 
+/// Optional condition that must be true for this binding to be active.
+/// When null, the binding is always active (existing behavior).
+condition: ?Condition = null,
+
 pub const Error = error{
     InvalidFormat,
     InvalidAction,
+};
+
+/// A condition that must be true for this binding to be active.
+/// Conditions are specified with bracket syntax: `[process=vim]ctrl+w=close_surface`
+pub const Condition = union(enum) {
+    /// Match on the name of the foreground process running in the terminal.
+    process: []const u8,
+
+    /// Match on the terminal window title.
+    title: []const u8,
+
+    /// Match on a user-defined variable set via OSC 1337 SetUserVar.
+    var_: VarCondition,
+
+    pub const VarCondition = struct {
+        name: []const u8,
+        value: []const u8,
+    };
 };
 
 /// Flags the full binding-scoped flags that can be set per binding.
@@ -76,6 +98,7 @@ pub const Parser = struct {
     action: Action,
     flags: Flags = .{},
     chain: bool,
+    condition: ?Condition = null,
 
     pub const Elem = union(enum) {
         /// A leader trigger in a sequence.
@@ -92,8 +115,12 @@ pub const Parser = struct {
     };
 
     pub fn init(raw_input: []const u8) Error!Parser {
-        const flags, const start_idx = try parseFlags(raw_input);
-        const input = raw_input[start_idx..];
+        // Parse condition first (condition prefix comes before flags)
+        const condition, const cond_end = try parseCondition(raw_input);
+        const after_condition = raw_input[cond_end..];
+
+        const flags, const start_idx = try parseFlags(after_condition);
+        const input = after_condition[start_idx..];
 
         // Find the equal sign. This is more complicated than it seems on
         // the surface because we need to ignore equal signs that are
@@ -125,9 +152,9 @@ pub const Parser = struct {
             return Error.InvalidFormat;
         };
 
-        // Detect chains. Chains must not have flags.
+        // Detect chains. Chains must not have flags or conditions.
         const chain = std.mem.eql(u8, input[0..eql_idx], "chain");
-        if (chain and start_idx > 0) return Error.InvalidFormat;
+        if (chain and (start_idx > 0 or cond_end > 0)) return Error.InvalidFormat;
 
         // Sequence iterator goes up to the equal, action is after. We can
         // parse the action now.
@@ -142,6 +169,7 @@ pub const Parser = struct {
             .action = try .parse(input[eql_idx + 1 ..]),
             .flags = flags,
             .chain = chain,
+            .condition = condition,
         };
     }
 
@@ -186,6 +214,49 @@ pub const Parser = struct {
         return .{ flags, start_idx };
     }
 
+    /// Parse an optional condition prefix of the form `[type=value]`.
+    /// Returns the parsed condition (or null) and the number of bytes consumed.
+    fn parseCondition(raw_input: []const u8) Error!struct { ?Condition, usize } {
+        if (raw_input.len == 0 or raw_input[0] != '[') return .{ null, 0 };
+
+        const close_idx = std.mem.indexOf(u8, raw_input, "]") orelse
+            return Error.InvalidFormat;
+        const content = raw_input[1..close_idx];
+
+        // Reject empty brackets
+        if (content.len == 0) return Error.InvalidFormat;
+
+        const eq_idx = std.mem.indexOf(u8, content, "=") orelse
+            return Error.InvalidFormat;
+        const cond_type = content[0..eq_idx];
+        const cond_value = content[eq_idx + 1 ..];
+
+        // Reject empty type or value
+        if (cond_type.len == 0 or cond_value.len == 0) return Error.InvalidFormat;
+
+        const condition: Condition = if (std.mem.eql(u8, cond_type, "process"))
+            .{ .process = cond_value }
+        else if (std.mem.eql(u8, cond_type, "title"))
+            .{ .title = cond_value }
+        else if (std.mem.eql(u8, cond_type, "var")) blk: {
+            const colon_idx = std.mem.indexOf(u8, cond_value, ":") orelse
+                return Error.InvalidFormat;
+            // Reject empty name or value in var condition
+            if (colon_idx == 0 or colon_idx == cond_value.len - 1)
+                return Error.InvalidFormat;
+            break :blk .{ .var_ = .{
+                .name = cond_value[0..colon_idx],
+                .value = cond_value[colon_idx + 1 ..],
+            } };
+        } else return Error.InvalidFormat; // Unknown condition type
+
+        // v1: reject multiple conditions — check if next char after ']' is '['
+        const after = raw_input[close_idx + 1 ..];
+        if (after.len > 0 and after[0] == '[') return Error.InvalidFormat;
+
+        return .{ condition, close_idx + 1 };
+    }
+
     pub fn next(self: *Parser) Error!?Elem {
         // Get our trigger. If we're out of triggers then we're done.
         const trigger = (try self.trigger_it.next()) orelse return null;
@@ -205,6 +276,7 @@ pub const Parser = struct {
             .trigger = trigger,
             .action = self.action,
             .flags = self.flags,
+            .condition = self.condition,
         } };
     }
 
