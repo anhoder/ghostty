@@ -1,3 +1,19 @@
+---
+gsd_state_version: 1.0
+milestone: v1.0
+milestone_name: milestone
+current_phase: Phase 1 — Config Syntax & Parsing
+current_plan: None (not started)
+status: Not started
+last_updated: "2026-03-18T04:17:19.344Z"
+progress:
+  total_phases: 6
+  completed_phases: 0
+  total_plans: 2
+  completed_plans: 1
+  percent: 50
+---
+
 # Project State: Ghostty 条件性快捷键配置
 
 **Last updated:** 2026-03-18
@@ -16,11 +32,11 @@
 ## Current Position
 
 **Current phase:** Phase 1 — Config Syntax & Parsing
-**Current plan:** None (not started)
-**Status:** Not started
+**Current plan:** Plan 02 (01-02)
+**Status:** In progress
 
 ```
-Progress: [░░░░░░░░░░░░░░░░░░░░] 0% (0/6 phases)
+Progress: [█████░░░░░] 50%
 ```
 
 ---
@@ -29,7 +45,7 @@ Progress: [░░░░░░░░░░░░░░░░░░░░] 0% (0/6
 
 | Phase | Status | Plans | Completed |
 |-------|--------|-------|-----------|
-| 1. Config Syntax & Parsing | Not started | 0/? | - |
+| 1. Config Syntax & Parsing | In progress | 1/2 | 01-01 |
 | 2. Evaluation Engine | Not started | 0/? | - |
 | 3. Process Name Detection | Not started | 0/? | - |
 | 4. OSC 1337 & UserVar Conditions | Not started | 0/? | - |
@@ -49,6 +65,9 @@ Progress: [░░░░░░░░░░░░░░░░░░░░] 0% (0/6
 | 200ms async polling via xev timer in `Exec.zig` | Matches existing `TERMIOS_POLL_MS`; keeps keypress path syscall-free | Confirmed by research |
 | Conditional bindings stored in `ConditionSet`, not `Binding.Set` | Clean overlay model; no modification to existing binding infrastructure | Confirmed by research |
 | Glob compiled at config-load time | Prevents per-keypress pattern compilation (50–500 µs regression) | Confirmed by research |
+| Condition co-located in Binding.zig (not separate file) | Follows existing pattern of Flags/Trigger/Action; keeps Parser and Condition together | Implemented in 01-01 |
+| Condition values are slice refs into input (no allocation) | Consistent with Action.parse() pattern; allocation deferred to Set.parseAndPut() arena | Implemented in 01-01 |
+| v1: single condition only, multiple conditions return InvalidFormat | Simplest correct behavior; can relax in future | Implemented in 01-01 |
 
 ### Open Questions (resolve before or during implementation)
 
@@ -92,6 +111,13 @@ Progress: [░░░░░░░░░░░░░░░░░░░░] 0% (0/6
 - Requirements defined: 18 v1, 4 v2
 - Roadmap created: 6 phases, 18/18 requirements mapped
 - Next: `/gsd:plan-phase 1`
+
+### Session 2 — 2026-03-18
+- Executed plan 01-01: Condition type and parser extension
+- Implemented Condition tagged union, parseCondition(), updated Parser.init/next
+- Tests written (TDD); syntax verified via zig ast-check
+- Build env has no network access — full test run deferred
+- Stopped at: Completed 01-config-syntax-parsing-01-01-PLAN.md
 
 ---
 *State initialized: 2026-03-18*

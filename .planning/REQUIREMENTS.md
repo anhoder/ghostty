@@ -7,11 +7,11 @@
 
 ### 配置语法 (CONF)
 
-- [ ] **CONF-01**: 条件性快捷键使用 Ghostty 风格的配置语法
-- [ ] **CONF-02**: 条件性快捷键语法与现有 keybind 语法一致扩展
+- [x] **CONF-01**: 条件性快捷键使用 Ghostty 风格的配置语法
+- [x] **CONF-02**: 条件性快捷键语法与现有 keybind 语法一致扩展
 - [ ] **CONF-03**: 后定义的条件性快捷键覆盖先定义的
 - [ ] **CONF-04**: 条件性快捷键优先于无条件快捷键
-- [ ] **CONF-05**: 不破坏任何现有快捷键配置的向后兼容性
+- [x] **CONF-05**: 不破坏任何现有快捷键配置的向后兼容性
 
 ### 进程名匹配 (PROC)
 
@@ -62,11 +62,11 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CONF-01 | Phase 1 | Pending |
-| CONF-02 | Phase 1 | Pending |
+| CONF-01 | Phase 1 | Complete |
+| CONF-02 | Phase 1 | Complete |
 | CONF-03 | Phase 1 | Pending |
 | CONF-04 | Phase 1 | Pending |
-| CONF-05 | Phase 1 | Pending |
+| CONF-05 | Phase 1 | Complete |
 | PROC-01 | Phase 2 | Pending |
 | PROC-05 | Phase 2 | Pending |
 | PROC-03 | Phase 3 | Pending |
