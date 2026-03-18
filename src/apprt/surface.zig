@@ -88,6 +88,12 @@ pub const Message = union(enum) {
     /// The foreground process name has changed in the PTY session.
     process_name_update: WriteReq,
 
+    /// A user variable was set via OSC 1337 SetUserVar.
+    set_user_var: struct {
+        name: [63:0]u8,    // variable name (null-terminated)
+        value: [191:0]u8,  // decoded value (null-terminated)
+    },
+
     /// The terminal encountered a bell character.
     ring_bell,
 
