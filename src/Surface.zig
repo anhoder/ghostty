@@ -732,6 +732,8 @@ pub fn init(
     };
 
     if (config.title) |title| {
+        // Seed runtime_context.title for condition matching at startup
+        self.runtime_context.title = try alloc.dupe(u8, title[0..title.len]);
         _ = try rt_app.performAction(
             .{ .surface = self },
             .set_title,
@@ -828,6 +830,10 @@ pub fn deinit(self: *Surface) void {
         }
         vars.deinit(self.alloc);
     }
+
+    // Clean up runtime context strings
+    if (self.runtime_context.title) |t| self.alloc.free(t);
+    if (self.runtime_context.process_name) |p| self.alloc.free(p);
 
     // Clean up our render state
     if (self.renderer_state.preedit) |p| self.alloc.free(p.codepoints);
@@ -962,15 +968,23 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
         .change_config => |config| try self.updateConfig(config),
 
         .set_title => |*v| {
-            // We ignore the message in case the title was set via config.
+            // The ptrCast just gets sliceTo to return the proper type.
+            // We know that our title should end in 0.
+            const slice = std.mem.sliceTo(@as([*:0]const u8, @ptrCast(v)), 0);
+
+            // Update runtime_context.title for condition matching (before config guard)
+            if (self.runtime_context.title) |old| self.alloc.free(old);
+            self.runtime_context.title = self.alloc.dupe(u8, slice) catch |err| blk: {
+                log.warn("failed to dupe title for runtime context: {}", .{err});
+                break :blk null;
+            };
+
+            // Guard: ignore visual title change if static title is set via config
             if (self.config.title != null) {
                 log.debug("ignoring title change request since static title is set via config", .{});
                 return;
             }
 
-            // The ptrCast just gets sliceTo to return the proper type.
-            // We know that our title should end in 0.
-            const slice = std.mem.sliceTo(@as([*:0]const u8, @ptrCast(v)), 0);
             log.debug("changing title \"{s}\"", .{slice});
             _ = try self.rt_app.performAction(
                 .{ .surface = self },
