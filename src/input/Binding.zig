@@ -5424,6 +5424,60 @@ test "RuntimeContext: matchesCondition var_ glob patterns" {
     try testing.expect(!ctx.matchesCondition(.{ .var_ = .{ .name = "missing", .value = "*" } }));
 }
 
+test "RuntimeContext: matchesCondition title/process glob patterns" {
+    const testing = std.testing;
+
+    // TITL-01: Title exact match
+    {
+        const ctx = RuntimeContext{ .title = "vim: main.zig" };
+        try testing.expect(ctx.matchesCondition(.{ .title = "vim: main.zig" }));
+        try testing.expect(!ctx.matchesCondition(.{ .title = "emacs" }));
+    }
+
+    // TITL-02: Title glob with *
+    {
+        const ctx = RuntimeContext{ .title = "vim: main.zig" };
+        try testing.expect(ctx.matchesCondition(.{ .title = "vim:*" }));
+        try testing.expect(ctx.matchesCondition(.{ .title = "*main*" }));
+        try testing.expect(!ctx.matchesCondition(.{ .title = "emacs*" }));
+    }
+    // Title glob with ?
+    {
+        const ctx = RuntimeContext{ .title = "vim: main.zig" };
+        try testing.expect(ctx.matchesCondition(.{ .title = "vim: main.zi?" }));
+    }
+    // Title null (no title set)
+    {
+        const ctx = RuntimeContext{};
+        try testing.expect(!ctx.matchesCondition(.{ .title = "anything" }));
+    }
+
+    // PROC-02: Process glob with *
+    {
+        const ctx = RuntimeContext{ .process_name = "nvim" };
+        try testing.expect(ctx.matchesCondition(.{ .process = "nvim*" }));
+    }
+    {
+        const ctx = RuntimeContext{ .process_name = "nvim-qt" };
+        try testing.expect(ctx.matchesCondition(.{ .process = "nvim*" }));
+    }
+    {
+        const ctx = RuntimeContext{ .process_name = "vim" };
+        try testing.expect(!ctx.matchesCondition(.{ .process = "nvim*" }));
+    }
+    // Process exact (fast path)
+    {
+        const ctx = RuntimeContext{ .process_name = "nvim" };
+        try testing.expect(ctx.matchesCondition(.{ .process = "nvim" }));
+        try testing.expect(!ctx.matchesCondition(.{ .process = "nvim-qt" }));
+    }
+    // Process glob with ?
+    {
+        const ctx = RuntimeContext{ .process_name = "nvim" };
+        try testing.expect(ctx.matchesCondition(.{ .process = "nvi?" }));
+    }
+}
+
 test "set: getConditional priority" {
     const testing = std.testing;
     const alloc = testing.allocator;
