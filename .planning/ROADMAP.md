@@ -59,8 +59,12 @@ Plans:
   2. Opening vim in a Ghostty terminal on Linux causes `RuntimeContext.process_name` to update to `"vim"` within ~200ms
   3. Exiting vim and returning to the shell updates the process name back to the shell name within ~200ms
   4. When process detection is unavailable (e.g. Flatpak sandbox), Ghostty logs a one-time warning and treats all `process=` conditions as non-matching rather than crashing
-**Plans**: TBD
+**Plans:** 2 plans
 
+
+Plans:
+- [ ] 03-01-PLAN.md — Platform-specific process detection API (src/os/process.zig) + mailbox message type
+- [ ] 03-02-PLAN.md — Timer integration in Exec.zig + Surface message handler
 ### Phase 4: OSC 1337 & UserVar Conditions
 **Goal**: Terminal programs can set named variables via OSC 1337 SetUserVar, and users can write keybindings that match on those variable values
 **Depends on**: Phase 2
