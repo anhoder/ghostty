@@ -30,8 +30,11 @@
   3. A later conditional binding for the same trigger+condition overwrites an earlier one (last-write wins)
   4. A conditional binding for a trigger takes priority over an unconditional binding for the same trigger
   5. An invalid condition clause (e.g. `[unknown=foo]`) produces a clear parse error, not a silent no-op
-**Plans**: TBD
+**Plans:** 2 plans
 
+Plans:
+- [ ] 01-01-PLAN.md — Define Condition tagged union, parseCondition(), extend Parser/Binding structs
+- [ ] 01-02-PLAN.md — Extend Set storage for conditional bindings, last-write-wins, coexistence model
 ### Phase 2: Evaluation Engine
 **Goal**: Conditional bindings are evaluated on every keypress using cached runtime state, with correct priority and zero syscalls on the hot path
 **Depends on**: Phase 1
@@ -93,7 +96,7 @@
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Config Syntax & Parsing | 0/? | Not started | - |
+| 1. Config Syntax & Parsing | 0/2 | Planning complete | - |
 | 2. Evaluation Engine | 0/? | Not started | - |
 | 3. Process Name Detection | 0/? | Not started | - |
 | 4. OSC 1337 & UserVar Conditions | 0/? | Not started | - |
