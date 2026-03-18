@@ -92,6 +92,11 @@ mouse: Mouse,
 /// Keyboard input state.
 keyboard: Keyboard,
 
+/// Runtime context for evaluating conditional keybindings. Updated by the
+/// process-detection subsystem (Phase 3) and OSC handlers (Phase 4).
+/// Defaults to all-null (no conditions match) until those subsystems populate it.
+runtime_context: input.Binding.RuntimeContext = .{},
+
 /// A currently pressed key. This is used so that we can send a keyboard
 /// release event when the surface is unfocused. Note that when the surface
 /// is refocused, a key press event may not be sent again -- this depends
@@ -2588,8 +2593,12 @@ pub fn keyEventIsBinding(
             }
         }
 
-        // Check the root set
-        break :entry self.config.keybind.set.getEvent(event) orelse return null;
+        // Check the root set using conditional evaluation
+        const cond_result = self.config.keybind.set.getEventConditional(
+            event,
+            &self.runtime_context,
+        ) orelse return null;
+        return cond_result.flags;
     };
 
     // Return flags based on the
@@ -2822,11 +2831,35 @@ fn maybeHandleBinding(
     }
 
     // Find an entry in the keybind set that matches our event.
-    const entry: input.Binding.Set.Entry = entry: {
+    // For the root set, we use getEventConditional to support conditional
+    // bindings. Sequence and table paths still use getEvent (no conditional
+    // support for those paths).
+    const leaf: input.Binding.Set.GenericLeaf = leaf: {
         // Handle key sequences first.
         if (self.keyboard.sequence_set) |set| {
             // Get our entry from the set for the given event.
-            if (set.getEvent(event)) |v| break :entry v;
+            if (set.getEvent(event)) |v| {
+                break :leaf switch (v.value_ptr.*) {
+                    .leader => |seq_set| {
+                        self.keyboard.sequence_set = seq_set;
+                        if (try self.encodeKey(event, insp_ev)) |req| {
+                            try self.keyboard.sequence_queued.append(self.alloc, req);
+                        }
+                        _ = self.rt_app.performAction(
+                            .{ .surface = self },
+                            .key_sequence,
+                            .{ .trigger = v.key_ptr.* },
+                        ) catch |err| {
+                            log.warn(
+                                "failed to notify app of key sequence err={}",
+                                .{err},
+                            );
+                        };
+                        return .consumed;
+                    },
+                    inline .leaf, .leaf_chained => |l| l.generic(),
+                };
+            }
 
             // No entry found. We need to encode everything up to this
             // point and send to the pty since we're in a sequence.
@@ -2866,45 +2899,41 @@ fn maybeHandleBinding(
                         .deactivate_key_table,
                     );
 
-                    break :entry v;
+                    break :leaf switch (v.value_ptr.*) {
+                        .leader => |seq_set| {
+                            self.keyboard.sequence_set = seq_set;
+                            if (try self.encodeKey(event, insp_ev)) |req| {
+                                try self.keyboard.sequence_queued.append(self.alloc, req);
+                            }
+                            _ = self.rt_app.performAction(
+                                .{ .surface = self },
+                                .key_sequence,
+                                .{ .trigger = v.key_ptr.* },
+                            ) catch |err| {
+                                log.warn(
+                                    "failed to notify app of key sequence err={}",
+                                    .{err},
+                                );
+                            };
+                            return .consumed;
+                        },
+                        inline .leaf, .leaf_chained => |l| l.generic(),
+                    };
                 }
             }
         }
 
-        // No table, use our default set
-        break :entry self.config.keybind.set.getEvent(event) orelse
-            return null;
-    };
-
-    // Determine if this entry has an action or if its a leader key.
-    const leaf: input.Binding.Set.GenericLeaf = switch (entry.value_ptr.*) {
-        .leader => |set| {
-            // Setup the next set we'll look at.
-            self.keyboard.sequence_set = set;
-
-            // Store this event so that we can drain and encode on invalid.
-            // We don't need to cap this because it is naturally capped by
-            // the config validation.
-            if (try self.encodeKey(event, insp_ev)) |req| {
-                try self.keyboard.sequence_queued.append(self.alloc, req);
-            }
-
-            // Start or continue our key sequence
-            _ = self.rt_app.performAction(
-                .{ .surface = self },
-                .key_sequence,
-                .{ .trigger = entry.key_ptr.* },
-            ) catch |err| {
-                log.warn(
-                    "failed to notify app of key sequence err={}",
-                    .{err},
-                );
-            };
-
-            return .consumed;
-        },
-
-        inline .leaf, .leaf_chained => |leaf| leaf.generic(),
+        // No table, use our default set with conditional evaluation.
+        // getEventConditional only returns leaf bindings (never leaders),
+        // so we construct GenericLeaf directly.
+        const cond_result = self.config.keybind.set.getEventConditional(
+            event,
+            &self.runtime_context,
+        ) orelse return null;
+        break :leaf .{
+            .flags = cond_result.flags,
+            .actions = .{ .single = .{cond_result.action} },
+        };
     };
 
     // consumed determines if the input is consumed or if we continue
