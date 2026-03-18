@@ -62,6 +62,55 @@ pub const Condition = union(enum) {
     }
 };
 
+/// RuntimeContext holds the current runtime state used to evaluate conditional
+/// bindings at keypress time. All fields default to null (no information
+/// available), which causes all conditional bindings to fall through to the
+/// unconditional fallback.
+///
+/// This struct is stored on Surface and updated by the process-detection and
+/// OSC-handling subsystems (Phases 3 & 4). It is read on every keypress via
+/// matchesCondition — zero allocations, zero syscalls.
+pub const RuntimeContext = struct {
+    /// The name of the foreground process running in the terminal.
+    /// Null means "unknown" — no process condition will match.
+    process_name: ?[]const u8 = null,
+
+    /// The current terminal window title.
+    /// Null means "not set" — no title condition will match.
+    title: ?[]const u8 = null,
+
+    /// User-defined variables set via OSC 1337 SetUserVar.
+    /// Null means no variables have been set.
+    user_vars: ?std.StringHashMapUnmanaged([]const u8) = null,
+
+    /// Returns true if this context satisfies the given condition.
+    ///
+    /// All comparisons are pure in-memory string comparisons — no
+    /// allocations, no syscalls. Returns false for any null field
+    /// (i.e. "unknown" never matches any condition).
+    pub fn matchesCondition(self: *const RuntimeContext, cond: Condition) bool {
+        return switch (cond) {
+            .process => |name| if (self.process_name) |pn|
+                std.mem.eql(u8, pn, name)
+            else
+                false,
+
+            .title => |t| if (self.title) |ti|
+                std.mem.eql(u8, ti, t)
+            else
+                false,
+
+            .var_ => |v| if (self.user_vars) |vars|
+                if (vars.get(v.name)) |val|
+                    std.mem.eql(u8, val, v.value)
+                else
+                    false
+            else
+                false,
+        };
+    }
+};
+
 /// Flags the full binding-scoped flags that can be set per binding.
 pub const Flags = packed struct {
     /// True if this binding should consume the input when the
@@ -2832,9 +2881,10 @@ pub const Set = struct {
 
     /// Get a binding for a trigger, checking conditional bindings first.
     ///
-    /// If a conditional binding matches the trigger AND the given condition,
-    /// it takes priority over any unconditional binding for the same trigger
-    /// (CONF-04: priority-based lookup).
+    /// If a RuntimeContext is provided and a conditional binding matches the
+    /// trigger AND satisfies ctx.matchesCondition, it takes priority over any
+    /// unconditional binding for the same trigger (CONF-04: priority-based
+    /// lookup).
     ///
     /// Falls back to the unconditional binding in `bindings` if no conditional
     /// match is found. Returns null if no binding exists at all.
@@ -2842,12 +2892,12 @@ pub const Set = struct {
     /// Note: getConditional performs a linear scan of conditional_bindings.
     /// This is acceptable for Phase 1 since users have few conditional
     /// bindings. Phase 2 can optimize if profiling shows need.
-    pub fn getConditional(self: *const Set, t: Trigger, condition: ?Condition) ?ConditionalResult {
+    pub fn getConditional(self: *const Set, t: Trigger, ctx: ?*const RuntimeContext) ?ConditionalResult {
         // First: check conditional_bindings for matching trigger + condition.
         // Conditional bindings take priority over unconditional (CONF-04).
-        if (condition) |cond| {
+        if (ctx) |c| {
             for (self.conditional_bindings.items) |entry| {
-                if (entry.trigger.bindingSetEqual(t) and entry.condition.eql(cond)) {
+                if (entry.trigger.bindingSetEqual(t) and c.matchesCondition(entry.condition)) {
                     return .{
                         .action = entry.action,
                         .flags = entry.flags,
@@ -2878,18 +2928,19 @@ pub const Set = struct {
     /// unicode → unshifted codepoint → catch_all) but uses getConditional
     /// at each step so that a matching conditional binding takes priority.
     ///
-    /// Phase 2 will call this from Surface.maybeHandleBinding with a
-    /// RuntimeContext that provides the active Condition.
+    /// The provided RuntimeContext is used to evaluate conditional bindings.
+    /// Pass null to skip conditional evaluation (falls through to unconditional
+    /// bindings only).
     pub fn getEventConditional(
         self: *const Set,
         event: KeyEvent,
-        condition: ?Condition,
+        ctx: ?*const RuntimeContext,
     ) ?ConditionalResult {
         var trigger: Trigger = .{
             .mods = event.mods.binding(),
             .key = .{ .physical = event.key },
         };
-        if (self.getConditional(trigger, condition)) |v| return v;
+        if (self.getConditional(trigger, ctx)) |v| return v;
 
         if (event.utf8.len > 0) unicode: {
             const view = std.unicode.Utf8View.init(event.utf8) catch break :unicode;
@@ -2897,19 +2948,19 @@ pub const Set = struct {
             const cp = it.nextCodepoint() orelse break :unicode;
             if (it.nextCodepoint() != null) break :unicode;
             trigger.key = .{ .unicode = cp };
-            if (self.getConditional(trigger, condition)) |v| return v;
+            if (self.getConditional(trigger, ctx)) |v| return v;
         }
 
         if (event.unshifted_codepoint > 0) {
             trigger.key = .{ .unicode = event.unshifted_codepoint };
-            if (self.getConditional(trigger, condition)) |v| return v;
+            if (self.getConditional(trigger, ctx)) |v| return v;
         }
 
         trigger.key = .catch_all;
-        if (self.getConditional(trigger, condition)) |v| return v;
+        if (self.getConditional(trigger, ctx)) |v| return v;
         if (!trigger.mods.empty()) {
             trigger.mods = .{};
-            if (self.getConditional(trigger, condition)) |v| return v;
+            if (self.getConditional(trigger, ctx)) |v| return v;
         }
 
         return null;
@@ -5240,6 +5291,61 @@ test "set: parseAndPut conditional bindings" {
     }
 }
 
+test "RuntimeContext: matchesCondition" {
+    const testing = std.testing;
+
+    // process_name match
+    {
+        const ctx: RuntimeContext = .{ .process_name = "vim" };
+        try testing.expect(ctx.matchesCondition(.{ .process = "vim" }));
+        try testing.expect(!ctx.matchesCondition(.{ .process = "nvim" }));
+    }
+
+    // null process_name → no process condition matches
+    {
+        const ctx: RuntimeContext = .{ .process_name = null };
+        try testing.expect(!ctx.matchesCondition(.{ .process = "vim" }));
+    }
+
+    // title match
+    {
+        const ctx: RuntimeContext = .{ .title = "foo" };
+        try testing.expect(ctx.matchesCondition(.{ .title = "foo" }));
+        try testing.expect(!ctx.matchesCondition(.{ .title = "bar" }));
+    }
+
+    // null title → no title condition matches
+    {
+        const ctx: RuntimeContext = .{ .title = null };
+        try testing.expect(!ctx.matchesCondition(.{ .title = "foo" }));
+    }
+
+    // empty RuntimeContext (all null) → no condition matches
+    {
+        const ctx: RuntimeContext = .{};
+        try testing.expect(!ctx.matchesCondition(.{ .process = "vim" }));
+        try testing.expect(!ctx.matchesCondition(.{ .title = "foo" }));
+        try testing.expect(!ctx.matchesCondition(.{ .var_ = .{ .name = "k", .value = "v" } }));
+    }
+
+    // var_ match
+    {
+        var vars: std.StringHashMapUnmanaged([]const u8) = .{};
+        defer vars.deinit(testing.allocator);
+        try vars.put(testing.allocator, "MY_VAR", "hello");
+        const ctx: RuntimeContext = .{ .user_vars = vars };
+        try testing.expect(ctx.matchesCondition(.{ .var_ = .{ .name = "MY_VAR", .value = "hello" } }));
+        try testing.expect(!ctx.matchesCondition(.{ .var_ = .{ .name = "MY_VAR", .value = "world" } }));
+        try testing.expect(!ctx.matchesCondition(.{ .var_ = .{ .name = "OTHER", .value = "hello" } }));
+    }
+
+    // null user_vars → no var_ condition matches
+    {
+        const ctx: RuntimeContext = .{ .user_vars = null };
+        try testing.expect(!ctx.matchesCondition(.{ .var_ = .{ .name = "k", .value = "v" } }));
+    }
+}
+
 test "set: getConditional priority" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -5248,8 +5354,8 @@ test "set: getConditional priority" {
         .mods = .{ .ctrl = true },
         .key = .{ .unicode = 'w' },
     };
-    const vim_cond: Condition = .{ .process = "vim" };
-    const nvim_cond: Condition = .{ .process = "nvim" };
+    const vim_ctx: RuntimeContext = .{ .process_name = "vim" };
+    const nvim_ctx: RuntimeContext = .{ .process_name = "nvim" };
 
     // Test: conditional binding takes priority over unconditional for same trigger
     {
@@ -5258,7 +5364,7 @@ test "set: getConditional priority" {
         try set.parseAndPut(alloc, "ctrl+w=close_surface");
         try set.parseAndPut(alloc, "[process=vim]ctrl+w=ignore");
 
-        const result = set.getConditional(trigger, vim_cond);
+        const result = set.getConditional(trigger, &vim_ctx);
         try testing.expect(result != null);
         try testing.expectEqual(Action.ignore, result.?.action);
         // Condition should be non-null (matched the conditional binding)
@@ -5271,13 +5377,13 @@ test "set: getConditional priority" {
         defer set.deinit(alloc);
         try set.parseAndPut(alloc, "ctrl+w=close_surface");
 
-        const result = set.getConditional(trigger, vim_cond);
+        const result = set.getConditional(trigger, &vim_ctx);
         try testing.expect(result != null);
         try testing.expectEqual(Action.close_surface, result.?.action);
         try testing.expect(result.?.condition == null);
     }
 
-    // Test: only conditional, null condition passed → returns null
+    // Test: only conditional, null context passed → returns null (no unconditional fallback)
     {
         var set: Set = .{};
         defer set.deinit(alloc);
@@ -5294,11 +5400,11 @@ test "set: getConditional priority" {
         try set.parseAndPut(alloc, "[process=vim]ctrl+w=ignore");
         try set.parseAndPut(alloc, "[process=nvim]ctrl+w=close_surface");
 
-        const vim_result = set.getConditional(trigger, vim_cond);
+        const vim_result = set.getConditional(trigger, &vim_ctx);
         try testing.expect(vim_result != null);
         try testing.expectEqual(Action.ignore, vim_result.?.action);
 
-        const nvim_result = set.getConditional(trigger, nvim_cond);
+        const nvim_result = set.getConditional(trigger, &nvim_ctx);
         try testing.expect(nvim_result != null);
         try testing.expectEqual(Action.close_surface, nvim_result.?.action);
     }
@@ -5309,7 +5415,7 @@ test "set: getConditional priority" {
         defer set.deinit(alloc);
         try set.parseAndPut(alloc, "[process=vim]ctrl+w=ignore");
 
-        const result = set.getConditional(trigger, nvim_cond);
+        const result = set.getConditional(trigger, &nvim_ctx);
         try testing.expect(result == null);
     }
 
@@ -5324,5 +5430,39 @@ test "set: getConditional priority" {
         try testing.expect(entry != null);
         // get() returns the unconditional binding, not the conditional one
         try testing.expectEqual(Action.close_surface, entry.?.value_ptr.leaf.action);
+    }
+
+    // Test: getConditional with context that has wrong process → falls back to unconditional
+    {
+        var set: Set = .{};
+        defer set.deinit(alloc);
+        try set.parseAndPut(alloc, "ctrl+w=close_surface");
+        try set.parseAndPut(alloc, "[process=vim]ctrl+w=ignore");
+
+        const result = set.getConditional(trigger, &nvim_ctx);
+        try testing.expect(result != null);
+        try testing.expectEqual(Action.close_surface, result.?.action);
+        // Unconditional fallback — condition is null
+        try testing.expect(result.?.condition == null);
+    }
+
+    // Test: getEventConditional with RuntimeContext returns conditional match
+    {
+        var set: Set = .{};
+        defer set.deinit(alloc);
+        try set.parseAndPut(alloc, "ctrl+w=close_surface");
+        try set.parseAndPut(alloc, "[process=vim]ctrl+w=ignore");
+
+        // Build a fake KeyEvent for ctrl+w (unicode path)
+        const event: @import("key.zig").KeyEvent = .{
+            .key = .w,
+            .mods = .{ .ctrl = true },
+            .action = .press,
+            .utf8 = "w",
+            .unshifted_codepoint = 'w',
+        };
+        const result = set.getEventConditional(event, &vim_ctx);
+        try testing.expect(result != null);
+        try testing.expectEqual(Action.ignore, result.?.action);
     }
 }
