@@ -101,13 +101,59 @@ pub const RuntimeContext = struct {
                 false,
 
             .var_ => |v| if (self.user_vars) |vars|
-                if (vars.get(v.name)) |val|
-                    std.mem.eql(u8, val, v.value)
-                else
-                    false
+                if (vars.get(v.name)) |val| matchesGlob(val, v.value) else false
             else
                 false,
         };
+    }
+
+    /// Match a string against a glob pattern supporting `*` (zero or more
+    /// characters) and `?` (exactly one character). No allocations.
+    ///
+    /// This is used for var_ condition values so that patterns like
+    /// `insert*` match "insert", "insert-visual", etc.
+    fn matchesGlob(str: []const u8, pattern: []const u8) bool {
+        // Fast path: no wildcards — use exact comparison.
+        if (std.mem.indexOfAny(u8, pattern, "*?") == null) {
+            return std.mem.eql(u8, str, pattern);
+        }
+        return globMatchImpl(str, pattern);
+    }
+
+    /// Recursive glob matcher. Uses backtracking on `*`.
+    fn globMatchImpl(str: []const u8, pattern: []const u8) bool {
+        var si: usize = 0; // index into str
+        var pi: usize = 0; // index into pattern
+        // star_pi/star_si track the last `*` position for backtracking
+        var star_pi: usize = std.math.maxInt(usize);
+        var star_si: usize = 0;
+
+        while (si < str.len) {
+            if (pi < pattern.len and (pattern[pi] == '?' or pattern[pi] == str[si])) {
+                // Exact character match or `?` wildcard
+                si += 1;
+                pi += 1;
+            } else if (pi < pattern.len and pattern[pi] == '*') {
+                // `*` can match zero characters: record position and advance pattern only
+                star_pi = pi;
+                star_si = si;
+                pi += 1;
+            } else if (star_pi != std.math.maxInt(usize)) {
+                // Backtrack: `*` matches one more character
+                star_si += 1;
+                si = star_si;
+                pi = star_pi + 1;
+            } else {
+                return false;
+            }
+        }
+
+        // Consume any trailing `*` in pattern
+        while (pi < pattern.len and pattern[pi] == '*') {
+            pi += 1;
+        }
+
+        return pi == pattern.len;
     }
 };
 
