@@ -2819,6 +2819,102 @@ pub const Set = struct {
         return null;
     }
 
+    /// The result returned by getConditional. Unlike the raw Entry type,
+    /// ConditionalResult normalizes the data and carries which condition
+    /// matched (or null if the fallback unconditional binding was used).
+    pub const ConditionalResult = struct {
+        action: Action,
+        flags: Flags,
+        /// Non-null when a conditional binding matched; null when the
+        /// unconditional binding was used as fallback.
+        condition: ?Condition,
+    };
+
+    /// Get a binding for a trigger, checking conditional bindings first.
+    ///
+    /// If a conditional binding matches the trigger AND the given condition,
+    /// it takes priority over any unconditional binding for the same trigger
+    /// (CONF-04: priority-based lookup).
+    ///
+    /// Falls back to the unconditional binding in `bindings` if no conditional
+    /// match is found. Returns null if no binding exists at all.
+    ///
+    /// Note: getConditional performs a linear scan of conditional_bindings.
+    /// This is acceptable for Phase 1 since users have few conditional
+    /// bindings. Phase 2 can optimize if profiling shows need.
+    pub fn getConditional(self: *const Set, t: Trigger, condition: ?Condition) ?ConditionalResult {
+        // First: check conditional_bindings for matching trigger + condition.
+        // Conditional bindings take priority over unconditional (CONF-04).
+        if (condition) |cond| {
+            for (self.conditional_bindings.items) |entry| {
+                if (entry.trigger.bindingSetEqual(t) and entry.condition.eql(cond)) {
+                    return .{
+                        .action = entry.action,
+                        .flags = entry.flags,
+                        .condition = entry.condition,
+                    };
+                }
+            }
+        }
+
+        // Fallback: check the unconditional bindings HashMap.
+        const map_entry = self.bindings.getEntry(t) orelse return null;
+        return switch (map_entry.value_ptr.*) {
+            .leaf => |leaf| .{
+                .action = leaf.action,
+                .flags = leaf.flags,
+                .condition = null,
+            },
+            // Leader and leaf_chained are not directly returnable as a
+            // single ConditionalResult; callers needing sequences must use
+            // the existing get()/getEvent() path.
+            .leader, .leaf_chained => null,
+        };
+    }
+
+    /// Like getEvent, but checks conditional bindings first (CONF-04 priority).
+    ///
+    /// Mirrors the trigger-variant fallback order of getEvent (physical →
+    /// unicode → unshifted codepoint → catch_all) but uses getConditional
+    /// at each step so that a matching conditional binding takes priority.
+    ///
+    /// Phase 2 will call this from Surface.maybeHandleBinding with a
+    /// RuntimeContext that provides the active Condition.
+    pub fn getEventConditional(
+        self: *const Set,
+        event: KeyEvent,
+        condition: ?Condition,
+    ) ?ConditionalResult {
+        var trigger: Trigger = .{
+            .mods = event.mods.binding(),
+            .key = .{ .physical = event.key },
+        };
+        if (self.getConditional(trigger, condition)) |v| return v;
+
+        if (event.utf8.len > 0) unicode: {
+            const view = std.unicode.Utf8View.init(event.utf8) catch break :unicode;
+            var it = view.iterator();
+            const cp = it.nextCodepoint() orelse break :unicode;
+            if (it.nextCodepoint() != null) break :unicode;
+            trigger.key = .{ .unicode = cp };
+            if (self.getConditional(trigger, condition)) |v| return v;
+        }
+
+        if (event.unshifted_codepoint > 0) {
+            trigger.key = .{ .unicode = event.unshifted_codepoint };
+            if (self.getConditional(trigger, condition)) |v| return v;
+        }
+
+        trigger.key = .catch_all;
+        if (self.getConditional(trigger, condition)) |v| return v;
+        if (!trigger.mods.empty()) {
+            trigger.mods = .{};
+            if (self.getConditional(trigger, condition)) |v| return v;
+        }
+
+        return null;
+    }
+
     /// Remove a binding for a given trigger.
     pub fn remove(self: *Set, alloc: Allocator, t: Trigger) void {
         self.removeExact(alloc, t);
