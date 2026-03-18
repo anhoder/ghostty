@@ -9,7 +9,7 @@
 
 ## Phases
 
-- [ ] **Phase 1: Config Syntax & Parsing** - Extend the keybind parser with conditional syntax; establish ConditionSet data model
+- [x] **Phase 1: Config Syntax & Parsing** - Extend the keybind parser with conditional syntax; establish ConditionSet data model (completed 2026-03-18)
 - [ ] **Phase 2: Evaluation Engine** - Wire RuntimeContext into Surface and implement condition evaluation on the keypress path
 - [ ] **Phase 3: Process Name Detection** - Platform-specific foreground process polling; end-to-end process-name exact match
 - [ ] **Phase 4: OSC 1337 & UserVar Conditions** - Implement SetUserVar pipeline; add UserVar condition type
@@ -30,7 +30,7 @@
   3. A later conditional binding for the same trigger+condition overwrites an earlier one (last-write wins)
   4. A conditional binding for a trigger takes priority over an unconditional binding for the same trigger
   5. An invalid condition clause (e.g. `[unknown=foo]`) produces a clear parse error, not a silent no-op
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 
 Plans:
 - [ ] 01-01-PLAN.md — Define Condition tagged union, parseCondition(), extend Parser/Binding structs
@@ -96,7 +96,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Config Syntax & Parsing | 1/2 | In Progress|  |
+| 1. Config Syntax & Parsing | 2/2 | Complete   | 2026-03-18 |
 | 2. Evaluation Engine | 0/? | Not started | - |
 | 3. Process Name Detection | 0/? | Not started | - |
 | 4. OSC 1337 & UserVar Conditions | 0/? | Not started | - |

@@ -2,22 +2,22 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: Phase 1 — Config Syntax & Parsing
-current_plan: None (not started)
-status: Not started
-last_updated: "2026-03-18T04:17:19.344Z"
+current_phase: Phase 2 — Evaluation Engine
+current_plan: Plan 01 (02-01)
+status: ready
+last_updated: "2026-03-18T04:31:43Z"
 progress:
   total_phases: 6
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 2
-  completed_plans: 1
-  percent: 50
+  completed_plans: 2
+  percent: 100
 ---
 
 # Project State: Ghostty 条件性快捷键配置
 
 **Last updated:** 2026-03-18
-**Session:** 1
+**Session:** 3
 
 ---
 
@@ -31,12 +31,12 @@ progress:
 
 ## Current Position
 
-**Current phase:** Phase 1 — Config Syntax & Parsing
-**Current plan:** Plan 02 (01-02)
-**Status:** In progress
+**Current phase:** Phase 1 — Config Syntax & Parsing (COMPLETE)
+**Next phase:** Phase 2 — Evaluation Engine
+**Status:** Phase 1 complete
 
 ```
-Progress: [█████░░░░░] 50%
+Progress: [██████████] 100%
 ```
 
 ---
@@ -45,7 +45,7 @@ Progress: [█████░░░░░] 50%
 
 | Phase | Status | Plans | Completed |
 |-------|--------|-------|-----------|
-| 1. Config Syntax & Parsing | In progress | 1/2 | 01-01 |
+| 1. Config Syntax & Parsing | Complete | 2/2 | 01-01, 01-02 |
 | 2. Evaluation Engine | Not started | 0/? | - |
 | 3. Process Name Detection | Not started | 0/? | - |
 | 4. OSC 1337 & UserVar Conditions | Not started | 0/? | - |
@@ -68,6 +68,9 @@ Progress: [█████░░░░░] 50%
 | Condition co-located in Binding.zig (not separate file) | Follows existing pattern of Flags/Trigger/Action; keeps Parser and Condition together | Implemented in 01-01 |
 | Condition values are slice refs into input (no allocation) | Consistent with Action.parse() pattern; allocation deferred to Set.parseAndPut() arena | Implemented in 01-01 |
 | v1: single condition only, multiple conditions return InvalidFormat | Simplest correct behavior; can relax in future | Implemented in 01-01 |
+| Separate conditional_bindings list on Set | Allows same trigger with different conditions to coexist without modifying unconditional HashMap | Implemented in 01-02 |
+| getConditional returns null for .leader/.leaf_chained | Sequences not supported for conditional bindings in Phase 1; callers use existing get()/getEvent() | Implemented in 01-02 |
+| Deep-clone actions in conditional_bindings during Set.clone | Consistent with Leaf.clone behavior; prevents dangling pointers after original input freed | Implemented in 01-02 |
 
 ### Open Questions (resolve before or during implementation)
 
@@ -90,15 +93,14 @@ Progress: [█████░░░░░] 50%
 
 | File | Role |
 |------|------|
-| `src/input/Binding.zig` | Keybind parser — Phase 1 extension point |
-| `src/config/Config.zig` | `Keybinds` struct, `parseCLI` — Phase 1 |
+| `src/input/Binding.zig` | Keybind parser — Phase 1 complete (Condition, conditional_bindings, getConditional) |
+| `src/config/Config.zig` | `Keybinds` struct — updated formatEntryDocs for conditional bindings |
 | `src/Surface.zig` | `maybeHandleBinding`, `RuntimeContext` — Phase 2 |
 | `src/termio/Exec.zig` | I/O thread, polling timer — Phase 3 |
 | `src/os/process.zig` | New file — platform process detection — Phase 3 |
 | `src/terminal/osc/parsers/iterm2.zig` | `SetUserVar` stub — Phase 4 |
 | `src/termio/stream_handler.zig` | OSC dispatch — Phase 4 |
 | `src/apprt/surface.zig` | `Message` union — Phases 3 & 4 |
-| `src/input/ConditionSet.zig` | New file — condition storage — Phase 1 |
 | `src/input/condition_eval.zig` | New file — pure evaluator — Phase 2 |
 
 ---
@@ -118,6 +120,14 @@ Progress: [█████░░░░░] 50%
 - Tests written (TDD); syntax verified via zig ast-check
 - Build env has no network access — full test run deferred
 - Stopped at: Completed 01-config-syntax-parsing-01-01-PLAN.md
+
+### Session 3 — 2026-03-18
+- Executed plan 01-02: Conditional Set storage and priority lookup
+- Implemented conditional_bindings, Condition.eql, putConditional, removeConditional
+- Implemented getConditional, getEventConditional (CONF-03, CONF-04)
+- Fixed formatEntryDocs to include conditional bindings in config output
+- Phase 1 complete — all 2 plans done
+- Stopped at: Completed 01-config-syntax-parsing-01-02-PLAN.md
 
 ---
 *State initialized: 2026-03-18*
