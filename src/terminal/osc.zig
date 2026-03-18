@@ -156,6 +156,14 @@ pub const Command = union(Key) {
 
     kitty_clipboard_protocol: KittyClipboardProtocol,
 
+    /// OSC 1337 SetUserVar. Sets a named user variable from a terminal program
+    /// using the iTerm2-compatible escape sequence.
+    /// Wire format: ESC ] 1337 ; SetUserVar=<name>=<base64-value> BEL/ST
+    set_user_var: struct {
+        name: [:0]const u8, // variable name
+        data: [:0]const u8, // base64-encoded value
+    },
+
     /// OSC 3008. Hierarchical context signalling (UAPI spec).
     /// https://uapi-group.org/specifications/specs/osc_context/
     context_signal: parsers.context_signal.Command,
@@ -193,6 +201,7 @@ pub const Command = union(Key) {
             "kitty_text_sizing",
             "kitty_clipboard_protocol",
             "context_signal",
+            "set_user_var",
         },
     );
 
@@ -425,6 +434,7 @@ pub const Parser = struct {
             .kitty_text_sizing,
             .kitty_clipboard_protocol,
             .context_signal,
+            .set_user_var,
             => {},
         }
 
