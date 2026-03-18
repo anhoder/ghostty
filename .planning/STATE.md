@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 current_phase: Phase 4 — OSC 1337 & UserVar Conditions (In Progress)
-status: ready
-last_updated: "2026-03-18T08:32:41Z"
+status: Ready
+last_updated: "2026-03-18T08:43:49.418Z"
 progress:
   total_phases: 6
   completed_phases: 3
-  total_plans: 6
-  completed_plans: 6
+  total_plans: 8
+  completed_plans: 7
   percent: 100
 ---
 
@@ -47,7 +47,7 @@ Progress: [██████████] 100%
 | 1. Config Syntax & Parsing | Complete | 2/2 | 01-01, 01-02 |
 | 2. Evaluation Engine | Complete | 1/1 | 02-01 |
 | 3. Process Name Detection | Complete | 2/2 | 03-01, 03-02 |
-| 4. OSC 1337 & UserVar Conditions | In Progress | 1/? | 04-01 |
+| 4. OSC 1337 & UserVar Conditions | In Progress | 2/? | 04-01, 04-02 |
 | 5. Window Title & Glob Matching | Not started | 0/? | - |
 | 6. Platform Validation & Documentation | Not started | 0/? | - |
 
@@ -79,6 +79,9 @@ Progress: [██████████] 100%
 | Rename local name/data to var_name/var_data in iterm2.zig | Zig treats shadowing of outer const as compile error; rename required for correctness | Implemented in 04-01 |
 | Empty data field returns null in SetUserVar parser | A SetUserVar with no base64 payload is meaningless; consistent with other iTerm2 parser validation | Implemented in 04-01 |
 | Action.SetUserVar defined as own struct in stream.zig | Keeps handler API explicit rather than aliasing anonymous osc.Command struct | Implemented in 04-01 |
+| Fixed-size arrays (name[63:0], value[191:0]) for set_user_var message | Follows desktop_notification pattern; predictable message size, no heap allocation | Implemented in 04-02 |
+| Stack decode buffer (256 bytes) for base64 in setUserVar | Avoids heap allocation in hot path; sufficient for typical user var values | Implemented in 04-02 |
+| Truncate-with-warn on oversized names/values | Prefer delivering partial data over dropping message silently | Implemented in 04-02 |
 
 ### Open Questions (resolve before or during implementation)
 
@@ -111,7 +114,8 @@ Progress: [██████████] 100%
 | `src/terminal/osc/parsers/iterm2.zig` | `SetUserVar` parser — Phase 4 plan 01 complete |
 | `src/terminal/osc.zig` | `Command.set_user_var` variant — Phase 4 plan 01 complete |
 | `src/terminal/stream.zig` | `oscDispatch` set_user_var case — Phase 4 plan 01 complete |
-| `src/termio/stream_handler.zig` | OSC dispatch — Phase 4 |
+| `src/termio/stream_handler.zig` | OSC dispatch — Phase 4 complete (04-02) |
+| `src/apprt/surface.zig` | `Message` union with set_user_var — Phase 4 plan 02 complete |
 
 ---
 
@@ -170,5 +174,12 @@ Progress: [██████████] 100%
 - Added set_user_var dispatch in stream.zig (Action type, Key enum, oscDispatch case)
 - Auto-fixed: variable shadowing (var_name/var_data rename)
 - Stopped at: Completed 04-osc-1337-uservar-conditions-04-01-PLAN.md
+
+### Session 8 — 2026-03-18
+- Executed plan 04-02: SetUserVar mailbox bridge
+- Added set_user_var message variant to surface.zig (fixed-size name[63:0]/value[191:0] arrays)
+- Implemented setUserVar handler in stream_handler.zig (base64 decode, truncate-with-warn, surfaceMessageWriter)
+- Wired set_user_var case into vtFallible switch
+- Stopped at: Completed 04-osc-1337-uservar-conditions-04-02-PLAN.md
 
 ---
