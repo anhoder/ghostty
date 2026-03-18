@@ -4983,3 +4983,68 @@ test "parse: conditional errors" {
     // multiple conditions (v1: not supported)
     try testing.expectError(error.InvalidFormat, parseSingle("[process=vim][title=foo]ctrl+w=close_surface"));
 }
+
+test "set: parseAndPut conditional bindings" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // Test: conditional binding stores with correct condition
+    {
+        var set: Set = .{};
+        defer set.deinit(alloc);
+        try set.parseAndPut(alloc, "[process=vim]ctrl+w=close_surface");
+        try testing.expectEqual(1, set.conditional_bindings.items.len);
+        try testing.expectEqualStrings("vim", set.conditional_bindings.items[0].condition.process);
+        try testing.expectEqual(Action.close_surface, set.conditional_bindings.items[0].action);
+    }
+
+    // Test: last-write-wins for same trigger+condition
+    {
+        var set: Set = .{};
+        defer set.deinit(alloc);
+        try set.parseAndPut(alloc, "[process=vim]ctrl+w=close_surface");
+        try set.parseAndPut(alloc, "[process=vim]ctrl+w=ignore");
+        // Second overwrites first — still only one entry
+        try testing.expectEqual(1, set.conditional_bindings.items.len);
+        try testing.expectEqual(Action.ignore, set.conditional_bindings.items[0].action);
+    }
+
+    // Test: conditional and unconditional coexist for same trigger
+    {
+        var set: Set = .{};
+        defer set.deinit(alloc);
+        try set.parseAndPut(alloc, "ctrl+w=close_surface");
+        try set.parseAndPut(alloc, "[process=vim]ctrl+w=ignore");
+        // Both exist: one unconditional in bindings, one conditional in conditional_bindings
+        try testing.expectEqual(1, set.conditional_bindings.items.len);
+        try testing.expect(set.bindings.count() == 1);
+    }
+
+    // Test: different conditions for same trigger coexist
+    {
+        var set: Set = .{};
+        defer set.deinit(alloc);
+        try set.parseAndPut(alloc, "[process=vim]ctrl+w=close_surface");
+        try set.parseAndPut(alloc, "[process=nvim]ctrl+w=ignore");
+        // Two conditional entries, one for each process
+        try testing.expectEqual(2, set.conditional_bindings.items.len);
+    }
+
+    // Test: unconditional unbind still removes unconditional binding
+    {
+        var set: Set = .{};
+        defer set.deinit(alloc);
+        try set.parseAndPut(alloc, "ctrl+w=close_surface");
+        try set.parseAndPut(alloc, "ctrl+w=unbind");
+        try testing.expectEqual(0, set.bindings.count());
+    }
+
+    // Test: conditional unbind removes only matching conditional entry
+    {
+        var set: Set = .{};
+        defer set.deinit(alloc);
+        try set.parseAndPut(alloc, "[process=vim]ctrl+w=close_surface");
+        try set.parseAndPut(alloc, "[process=vim]ctrl+w=unbind");
+        try testing.expectEqual(0, set.conditional_bindings.items.len);
+    }
+}
