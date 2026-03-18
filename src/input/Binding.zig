@@ -5143,3 +5143,90 @@ test "set: parseAndPut conditional bindings" {
         try testing.expectEqual(0, set.conditional_bindings.items.len);
     }
 }
+
+test "set: getConditional priority" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const trigger: Trigger = .{
+        .mods = .{ .ctrl = true },
+        .key = .{ .unicode = 'w' },
+    };
+    const vim_cond: Condition = .{ .process = "vim" };
+    const nvim_cond: Condition = .{ .process = "nvim" };
+
+    // Test: conditional binding takes priority over unconditional for same trigger
+    {
+        var set: Set = .{};
+        defer set.deinit(alloc);
+        try set.parseAndPut(alloc, "ctrl+w=close_surface");
+        try set.parseAndPut(alloc, "[process=vim]ctrl+w=ignore");
+
+        const result = set.getConditional(trigger, vim_cond);
+        try testing.expect(result != null);
+        try testing.expectEqual(Action.ignore, result.?.action);
+        // Condition should be non-null (matched the conditional binding)
+        try testing.expect(result.?.condition != null);
+    }
+
+    // Test: falls back to unconditional when no conditional match
+    {
+        var set: Set = .{};
+        defer set.deinit(alloc);
+        try set.parseAndPut(alloc, "ctrl+w=close_surface");
+
+        const result = set.getConditional(trigger, vim_cond);
+        try testing.expect(result != null);
+        try testing.expectEqual(Action.close_surface, result.?.action);
+        try testing.expect(result.?.condition == null);
+    }
+
+    // Test: only conditional, null condition passed → returns null
+    {
+        var set: Set = .{};
+        defer set.deinit(alloc);
+        try set.parseAndPut(alloc, "[process=vim]ctrl+w=ignore");
+
+        const result = set.getConditional(trigger, null);
+        try testing.expect(result == null);
+    }
+
+    // Test: multiple conditional bindings — returns matching one
+    {
+        var set: Set = .{};
+        defer set.deinit(alloc);
+        try set.parseAndPut(alloc, "[process=vim]ctrl+w=ignore");
+        try set.parseAndPut(alloc, "[process=nvim]ctrl+w=close_surface");
+
+        const vim_result = set.getConditional(trigger, vim_cond);
+        try testing.expect(vim_result != null);
+        try testing.expectEqual(Action.ignore, vim_result.?.action);
+
+        const nvim_result = set.getConditional(trigger, nvim_cond);
+        try testing.expect(nvim_result != null);
+        try testing.expectEqual(Action.close_surface, nvim_result.?.action);
+    }
+
+    // Test: no conditional match, no unconditional → returns null
+    {
+        var set: Set = .{};
+        defer set.deinit(alloc);
+        try set.parseAndPut(alloc, "[process=vim]ctrl+w=ignore");
+
+        const result = set.getConditional(trigger, nvim_cond);
+        try testing.expect(result == null);
+    }
+
+    // Test: existing Set.get() unchanged — returns unconditional only
+    {
+        var set: Set = .{};
+        defer set.deinit(alloc);
+        try set.parseAndPut(alloc, "ctrl+w=close_surface");
+        try set.parseAndPut(alloc, "[process=vim]ctrl+w=ignore");
+
+        const entry = set.get(trigger);
+        try testing.expect(entry != null);
+        // get() returns the unconditional binding, not the conditional one
+        try testing.expectEqual(Action.close_surface, entry.?.value_ptr.leaf.action);
+    }
+}
