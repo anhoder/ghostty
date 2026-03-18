@@ -47,6 +47,19 @@ pub const Condition = union(enum) {
         name: []const u8,
         value: []const u8,
     };
+
+    /// Compare two conditions for equality (value-based, not pointer-based).
+    pub fn eql(a: Condition, b: Condition) bool {
+        const tag_a = std.meta.activeTag(a);
+        const tag_b = std.meta.activeTag(b);
+        if (tag_a != tag_b) return false;
+        return switch (a) {
+            .process => |v| std.mem.eql(u8, v, b.process),
+            .title => |v| std.mem.eql(u8, v, b.title),
+            .var_ => |v| std.mem.eql(u8, v.name, b.var_.name) and
+                std.mem.eql(u8, v.value, b.var_.value),
+        };
+    }
 };
 
 /// Flags the full binding-scoped flags that can be set per binding.
@@ -2096,6 +2109,17 @@ pub const Set = struct {
     /// The set of bindings.
     bindings: HashMap = .{},
 
+    /// Conditional bindings are stored separately from the main bindings
+    /// HashMap. A conditional binding only activates when its associated
+    /// Condition is met at runtime (e.g. the foreground process matches).
+    ///
+    /// Storage rationale: the main `bindings` HashMap uses Trigger as the
+    /// key, so two bindings with the same trigger overwrite each other.
+    /// Conditional bindings must coexist with unconditional bindings and
+    /// with each other (different conditions), so they live in a separate
+    /// list. Last-write-wins within the same trigger+condition pair.
+    conditional_bindings: std.ArrayListUnmanaged(ConditionalEntry) = .{},
+
     /// The reverse mapping of action to binding. Note that multiple
     /// bindings can map to the same action and this map will only have
     /// the most recently added binding for an action.
@@ -2128,6 +2152,17 @@ pub const Set = struct {
         key_ptr: *Trigger,
         value_ptr: *Value,
         set: *Set,
+    };
+
+    /// An entry in the conditional_bindings list. Conditional bindings are
+    /// stored separately from the unconditional `bindings` HashMap so that
+    /// a conditional and an unconditional binding can coexist for the same
+    /// trigger. See conditional_bindings field for full rationale.
+    pub const ConditionalEntry = struct {
+        trigger: Trigger,
+        action: Action,
+        flags: Flags,
+        condition: Condition,
     };
 
     /// The entry type for the forward mapping of trigger to action.
@@ -2325,6 +2360,7 @@ pub const Set = struct {
 
         self.bindings.deinit(alloc);
         self.reverse.deinit(alloc);
+        self.conditional_bindings.deinit(alloc);
         self.* = undefined;
     }
 
@@ -2503,17 +2539,28 @@ pub const Set = struct {
 
             .binding => |b| switch (b.action) {
                 .unbind => {
-                    set.remove(alloc, b.trigger);
+                    // If this is a conditional unbind, remove from conditional_bindings.
+                    // Otherwise remove from the unconditional bindings HashMap.
+                    if (it.condition) |cond| {
+                        set.removeConditional(b.trigger, cond);
+                    } else {
+                        set.remove(alloc, b.trigger);
+                    }
                     return error.SequenceUnbind;
                 },
 
                 else => {
-                    try set.putFlags(
-                        alloc,
-                        b.trigger,
-                        b.action,
-                        b.flags,
-                    );
+                    // If the parser carries a condition, route to conditional_bindings.
+                    if (it.condition) |cond| {
+                        try set.putConditional(alloc, b.trigger, b.action, b.flags, cond);
+                    } else {
+                        try set.putFlags(
+                            alloc,
+                            b.trigger,
+                            b.action,
+                            b.flags,
+                        );
+                    }
                     return set;
                 },
             },
@@ -2616,8 +2663,49 @@ pub const Set = struct {
         assert(self.chain_parent.?.value_ptr.* == .leaf);
     }
 
-    /// Append a chained action to the prior set action.
-    ///
+    /// Add a conditional binding to conditional_bindings.
+    /// Implements last-write-wins: if an entry with the same trigger+condition
+    /// already exists, it is replaced.
+    fn putConditional(
+        self: *Set,
+        alloc: Allocator,
+        t: Trigger,
+        action: Action,
+        flags: Flags,
+        cond: Condition,
+    ) Allocator.Error!void {
+        // Scan for existing entry with the same trigger+condition (last-write-wins).
+        for (self.conditional_bindings.items) |*entry| {
+            if (entry.trigger.bindingSetEqual(t) and entry.condition.eql(cond)) {
+                entry.action = action;
+                entry.flags = flags;
+                return;
+            }
+        }
+        // No existing entry — append a new one.
+        try self.conditional_bindings.append(alloc, .{
+            .trigger = t,
+            .action = action,
+            .flags = flags,
+            .condition = cond,
+        });
+    }
+
+    /// Remove a conditional binding that matches the given trigger and condition.
+    /// No-op if no matching entry exists.
+    fn removeConditional(self: *Set, t: Trigger, cond: Condition) void {
+        var i: usize = 0;
+        while (i < self.conditional_bindings.items.len) {
+            const entry = self.conditional_bindings.items[i];
+            if (entry.trigger.bindingSetEqual(t) and entry.condition.eql(cond)) {
+                _ = self.conditional_bindings.swapRemove(i);
+                return;
+            }
+            i += 1;
+        }
+    }
+
+    /// Append a chained action to the prior set action.    ///
     /// It is an error if there is no valid prior chain parent.
     pub fn appendChain(
         self: *Set,
@@ -2821,6 +2909,7 @@ pub const Set = struct {
         var result: Set = .{
             .bindings = try self.bindings.clone(alloc),
             .reverse = try self.reverse.clone(alloc),
+            .conditional_bindings = try self.conditional_bindings.clone(alloc),
         };
 
         // If we have any leaders we need to clone them.
