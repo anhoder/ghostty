@@ -28,10 +28,10 @@
 
 ### 用户变量匹配 (UVAR)
 
-- [ ] **UVAR-01**: 用户可以基于用户变量的值配置条件快捷键
+- [x] **UVAR-01**: 用户可以基于用户变量的值配置条件快捷键
 - [x] **UVAR-02**: 终端程序可通过 OSC 1337 SetUserVar 设置用户变量
 - [x] **UVAR-03**: 用户变量在 Surface 级别存储和管理
-- [ ] **UVAR-04**: 用户变量支持精确匹配和模式匹配
+- [x] **UVAR-04**: 用户变量支持精确匹配和模式匹配
 
 ### 平台支持 (PLAT)
 
@@ -71,10 +71,10 @@
 | PROC-05 | Phase 2 | Complete |
 | PROC-03 | Phase 3 | Complete |
 | PROC-04 | Phase 3 | Complete |
-| UVAR-01 | Phase 4 | Pending |
+| UVAR-01 | Phase 4 | Complete |
 | UVAR-02 | Phase 4 | Complete |
 | UVAR-03 | Phase 4 | Complete |
-| UVAR-04 | Phase 4 | Pending |
+| UVAR-04 | Phase 4 | Complete |
 | TITL-01 | Phase 5 | Pending |
 | TITL-02 | Phase 5 | Pending |
 | PROC-02 | Phase 5 | Pending |

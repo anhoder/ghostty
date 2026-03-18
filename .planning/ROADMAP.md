@@ -12,7 +12,7 @@
 - [x] **Phase 1: Config Syntax & Parsing** - Extend the keybind parser with conditional syntax; establish ConditionSet data model (completed 2026-03-18)
 - [x] **Phase 2: Evaluation Engine** - Wire RuntimeContext into Surface and implement condition evaluation on the keypress path (completed 2026-03-18)
 - [x] **Phase 3: Process Name Detection** - Platform-specific foreground process polling; end-to-end process-name exact match (completed 2026-03-18)
-- [ ] **Phase 4: OSC 1337 & UserVar Conditions** - Implement SetUserVar pipeline; add UserVar condition type
+- [x] **Phase 4: OSC 1337 & UserVar Conditions** - Implement SetUserVar pipeline; add UserVar condition type (completed 2026-03-18)
 - [ ] **Phase 5: Window Title & Glob Matching** - Add window_title condition type; add glob pattern support for all condition types
 - [ ] **Phase 6: Platform Validation & Documentation** - Cross-platform verification; keybind doc comment update
 
@@ -74,7 +74,7 @@ Plans:
   2. A keybinding `[var=in_vim:1]ctrl+w=close_surface` fires when `in_vim` equals `"1"` and falls through to the unconditional binding otherwise
   3. Setting a UserVar to a new value via OSC 1337 replaces the previous value without memory leaks
   4. UserVar exact match and glob match both work (e.g. `[var=mode:insert*]`)
-**Plans:** 2/3 plans executed
+**Plans:** 3/3 plans complete
 
 Plans:
 - [ ] 04-01-PLAN.md — OSC 1337 SetUserVar parser and stream dispatch
@@ -112,7 +112,7 @@ Plans:
 | 1. Config Syntax & Parsing | 2/2 | Complete   | 2026-03-18 |
 | 2. Evaluation Engine | 1/1 | Complete   | 2026-03-18 |
 | 3. Process Name Detection | 2/2 | Complete   | 2026-03-18 |
-| 4. OSC 1337 & UserVar Conditions | 2/3 | In Progress|  |
+| 4. OSC 1337 & UserVar Conditions | 3/3 | Complete   | 2026-03-18 |
 | 5. Window Title & Glob Matching | 0/? | Not started | - |
 | 6. Platform Validation & Documentation | 0/? | Not started | - |
 

@@ -4,12 +4,12 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: Phase 4 — OSC 1337 & UserVar Conditions (In Progress)
 status: Ready
-last_updated: "2026-03-18T08:43:49.418Z"
+last_updated: "2026-03-18T08:52:22.201Z"
 progress:
   total_phases: 6
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 8
-  completed_plans: 7
+  completed_plans: 8
   percent: 100
 ---
 
@@ -30,8 +30,8 @@ progress:
 
 ## Current Position
 
-**Current phase:** Phase 4 — OSC 1337 & UserVar Conditions (In Progress)
-**Next phase:** Phase 5 — Window Title & Glob Matching
+**Current phase:** Phase 5 — Window Title & Glob Matching
+**Next phase:** Phase 6 — Platform Validation & Documentation
 **Status:** Ready
 
 ```
@@ -47,7 +47,7 @@ Progress: [██████████] 100%
 | 1. Config Syntax & Parsing | Complete | 2/2 | 01-01, 01-02 |
 | 2. Evaluation Engine | Complete | 1/1 | 02-01 |
 | 3. Process Name Detection | Complete | 2/2 | 03-01, 03-02 |
-| 4. OSC 1337 & UserVar Conditions | In Progress | 2/? | 04-01, 04-02 |
+| 4. OSC 1337 & UserVar Conditions | Complete | 3/3 | 04-01, 04-02, 04-03 |
 | 5. Window Title & Glob Matching | Not started | 0/? | - |
 | 6. Platform Validation & Documentation | Not started | 0/? | - |
 
@@ -82,6 +82,8 @@ Progress: [██████████] 100%
 | Fixed-size arrays (name[63:0], value[191:0]) for set_user_var message | Follows desktop_notification pattern; predictable message size, no heap allocation | Implemented in 04-02 |
 | Stack decode buffer (256 bytes) for base64 in setUserVar | Avoids heap allocation in hot path; sufficient for typical user var values | Implemented in 04-02 |
 | Truncate-with-warn on oversized names/values | Prefer delivering partial data over dropping message silently | Implemented in 04-02 |
+| Lazy-init user_vars hashmap on first set_user_var | Avoid empty hashmap overhead; init .{} only when first variable arrives | Implemented in 04-03 |
+| Inline glob matcher (matchesGlob/globMatchImpl) | Zig 0.15.2 stdlib has no path.match or glob API; backtracking algorithm with fast exact-match short-circuit | Implemented in 04-03 |
 
 ### Open Questions (resolve before or during implementation)
 
@@ -116,6 +118,7 @@ Progress: [██████████] 100%
 | `src/terminal/stream.zig` | `oscDispatch` set_user_var case — Phase 4 plan 01 complete |
 | `src/termio/stream_handler.zig` | OSC dispatch — Phase 4 complete (04-02) |
 | `src/apprt/surface.zig` | `Message` union with set_user_var — Phase 4 plan 02 complete |
+| `src/Surface.zig` | set_user_var handler, user_vars deinit — Phase 4 plan 03 complete |
 
 ---
 
@@ -181,5 +184,14 @@ Progress: [██████████] 100%
 - Implemented setUserVar handler in stream_handler.zig (base64 decode, truncate-with-warn, surfaceMessageWriter)
 - Wired set_user_var case into vtFallible switch
 - Stopped at: Completed 04-osc-1337-uservar-conditions-04-02-PLAN.md
+
+### Session 9 — 2026-03-18
+- Executed plan 04-03: User variable storage and glob matching
+- Added set_user_var handler in Surface.zig (lazy-init hashmap, fetchRemove on update, dupe to Surface allocator)
+- Added user_vars deinit cleanup in Surface.deinit
+- Implemented matchesGlob/globMatchImpl (backtracking * and ? glob matching) in RuntimeContext
+- Updated matchesCondition var_ case to use glob matching with fast exact-match short-circuit
+- Phase 4 complete: all 3 plans done, full user variable pipeline operational
+- Stopped at: Completed 04-osc-1337-uservar-conditions-04-03-PLAN.md
 
 ---
