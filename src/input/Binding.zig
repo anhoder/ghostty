@@ -91,12 +91,12 @@ pub const RuntimeContext = struct {
     pub fn matchesCondition(self: *const RuntimeContext, cond: Condition) bool {
         return switch (cond) {
             .process => |name| if (self.process_name) |pn|
-                std.mem.eql(u8, pn, name)
+                matchesGlob(pn, name)
             else
                 false,
 
             .title => |t| if (self.title) |ti|
-                std.mem.eql(u8, ti, t)
+                matchesGlob(ti, t)
             else
                 false,
 
@@ -110,8 +110,9 @@ pub const RuntimeContext = struct {
     /// Match a string against a glob pattern supporting `*` (zero or more
     /// characters) and `?` (exactly one character). No allocations.
     ///
-    /// This is used for var_ condition values so that patterns like
-    /// `insert*` match "insert", "insert-visual", etc.
+    /// Used for all condition types: process, title, and var_. Patterns like
+    /// `nvim*` match "nvim" and "nvim-qt"; `vim: *` matches any vim title.
+    /// Has a fast path that uses exact comparison when no wildcards are present.
     fn matchesGlob(str: []const u8, pattern: []const u8) bool {
         // Fast path: no wildcards — use exact comparison.
         if (std.mem.indexOfAny(u8, pattern, "*?") == null) {
