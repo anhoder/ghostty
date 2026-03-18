@@ -2939,6 +2939,12 @@ pub const Set = struct {
             action.* = try action.clone(alloc);
         }
 
+        // Clone actions in conditional_bindings. Actions may contain
+        // allocated strings (e.g. text actions), so we deep-clone each.
+        for (result.conditional_bindings.items) |*entry| {
+            entry.action = try entry.action.clone(alloc);
+        }
+
         return result;
     }
 
