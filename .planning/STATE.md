@@ -2,21 +2,21 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: Phase 3 — Process Name Detection (Complete)
+current_phase: Phase 4 — OSC 1337 & UserVar Conditions (In Progress)
 status: ready
-last_updated: "2026-03-18T06:36:39Z"
+last_updated: "2026-03-18T08:32:41Z"
 progress:
   total_phases: 6
   completed_phases: 3
-  total_plans: 5
-  completed_plans: 5
+  total_plans: 6
+  completed_plans: 6
   percent: 100
 ---
 
 # Project State: Ghostty 条件性快捷键配置
 
 **Last updated:** 2026-03-18
-**Session:** 5
+**Session:** 7
 
 ---
 
@@ -30,8 +30,8 @@ progress:
 
 ## Current Position
 
-**Current phase:** Phase 3 — Process Name Detection (Complete)
-**Next phase:** Phase 4 — OSC 1337 & UserVar Conditions
+**Current phase:** Phase 4 — OSC 1337 & UserVar Conditions (In Progress)
+**Next phase:** Phase 5 — Window Title & Glob Matching
 **Status:** Ready
 
 ```
@@ -47,7 +47,7 @@ Progress: [██████████] 100%
 | 1. Config Syntax & Parsing | Complete | 2/2 | 01-01, 01-02 |
 | 2. Evaluation Engine | Complete | 1/1 | 02-01 |
 | 3. Process Name Detection | Complete | 2/2 | 03-01, 03-02 |
-| 4. OSC 1337 & UserVar Conditions | Not started | 0/? | - |
+| 4. OSC 1337 & UserVar Conditions | In Progress | 1/? | 04-01 |
 | 5. Window Title & Glob Matching | Not started | 0/? | - |
 | 6. Platform Validation & Documentation | Not started | 0/? | - |
 
@@ -76,7 +76,9 @@ Progress: [██████████] 100%
 | Return null for unsupported platforms in process detection | Graceful degradation; no error propagation needed | Implemented in 03-01 |
 | Arena allocator for process name in I/O thread | Temporary allocation cleaned up periodically; ownership transferred via mailbox | Implemented in 03-02 |
 | No deduplication in I/O thread | Surface handles deduplication if needed; simpler I/O thread logic | Implemented in 03-02 |
-| Explicit memory management in Surface handler | Free old process name before duping new one; prevents memory leaks | Implemented in 03-02 |
+| Rename local name/data to var_name/var_data in iterm2.zig | Zig treats shadowing of outer const as compile error; rename required for correctness | Implemented in 04-01 |
+| Empty data field returns null in SetUserVar parser | A SetUserVar with no base64 payload is meaningless; consistent with other iTerm2 parser validation | Implemented in 04-01 |
+| Action.SetUserVar defined as own struct in stream.zig | Keeps handler API explicit rather than aliasing anonymous osc.Command struct | Implemented in 04-01 |
 
 ### Open Questions (resolve before or during implementation)
 
@@ -106,7 +108,9 @@ Progress: [██████████] 100%
 | `src/os/process.zig` | Platform process detection — Phase 3 complete |
 | `src/os/main.zig` | Export process module — Phase 3 complete |
 | `src/apprt/surface.zig` | `Message` union with process_name_update — Phase 3 complete |
-| `src/terminal/osc/parsers/iterm2.zig` | `SetUserVar` stub — Phase 4 |
+| `src/terminal/osc/parsers/iterm2.zig` | `SetUserVar` parser — Phase 4 plan 01 complete |
+| `src/terminal/osc.zig` | `Command.set_user_var` variant — Phase 4 plan 01 complete |
+| `src/terminal/stream.zig` | `oscDispatch` set_user_var case — Phase 4 plan 01 complete |
 | `src/termio/stream_handler.zig` | OSC dispatch — Phase 4 |
 
 ---
@@ -159,5 +163,12 @@ Progress: [██████████] 100%
 - Phase 3 complete — end-to-end process detection operational
 - Stopped at: Completed 03-process-name-detection-03-02-PLAN.md
 
+### Session 7 — 2026-03-18
+- Executed plan 04-01: OSC 1337 SetUserVar parsing
+- Implemented SetUserVar parser in iterm2.zig (name + base64 slices, 5 tests)
+- Added Command.set_user_var to osc.zig (Key enum, reset() arm)
+- Added set_user_var dispatch in stream.zig (Action type, Key enum, oscDispatch case)
+- Auto-fixed: variable shadowing (var_name/var_data rename)
+- Stopped at: Completed 04-osc-1337-uservar-conditions-04-01-PLAN.md
+
 ---
-*State initialized: 2026-03-18*

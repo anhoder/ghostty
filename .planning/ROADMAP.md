@@ -74,7 +74,7 @@ Plans:
   2. A keybinding `[var=in_vim:1]ctrl+w=close_surface` fires when `in_vim` equals `"1"` and falls through to the unconditional binding otherwise
   3. Setting a UserVar to a new value via OSC 1337 replaces the previous value without memory leaks
   4. UserVar exact match and glob match both work (e.g. `[var=mode:insert*]`)
-**Plans:** 3 plans
+**Plans:** 1/3 plans executed
 
 Plans:
 - [ ] 04-01-PLAN.md — OSC 1337 SetUserVar parser and stream dispatch
@@ -112,7 +112,7 @@ Plans:
 | 1. Config Syntax & Parsing | 2/2 | Complete   | 2026-03-18 |
 | 2. Evaluation Engine | 1/1 | Complete   | 2026-03-18 |
 | 3. Process Name Detection | 2/2 | Complete   | 2026-03-18 |
-| 4. OSC 1337 & UserVar Conditions | 0/? | Not started | - |
+| 4. OSC 1337 & UserVar Conditions | 1/3 | In Progress|  |
 | 5. Window Title & Glob Matching | 0/? | Not started | - |
 | 6. Platform Validation & Documentation | 0/? | Not started | - |
 
