@@ -16,15 +16,15 @@
 ### 进程名匹配 (PROC)
 
 - [x] **PROC-01**: 用户可以基于前台进程名称精确匹配配置快捷键
-- [ ] **PROC-02**: 用户可以使用 glob 通配符模式匹配进程名称
+- [x] **PROC-02**: 用户可以使用 glob 通配符模式匹配进程名称
 - [x] **PROC-03**: 进程名检测在 macOS 上正常工作
 - [x] **PROC-04**: 进程名检测在 Linux 上正常工作
 - [x] **PROC-05**: 按键路径上的进程检测不会引入可感知的延迟
 
 ### 窗口标题匹配 (TITL)
 
-- [ ] **TITL-01**: 用户可以基于窗口标题精确匹配配置快捷键
-- [ ] **TITL-02**: 用户可以使用 glob 通配符模式匹配窗口标题
+- [x] **TITL-01**: 用户可以基于窗口标题精确匹配配置快捷键
+- [x] **TITL-02**: 用户可以使用 glob 通配符模式匹配窗口标题
 
 ### 用户变量匹配 (UVAR)
 
@@ -75,9 +75,9 @@
 | UVAR-02 | Phase 4 | Complete |
 | UVAR-03 | Phase 4 | Complete |
 | UVAR-04 | Phase 4 | Complete |
-| TITL-01 | Phase 5 | Pending |
-| TITL-02 | Phase 5 | Pending |
-| PROC-02 | Phase 5 | Pending |
+| TITL-01 | Phase 5 | Complete |
+| TITL-02 | Phase 5 | Complete |
+| PROC-02 | Phase 5 | Complete |
 | PLAT-01 | Phase 6 | Pending |
 | PLAT-02 | Phase 6 | Pending |
 

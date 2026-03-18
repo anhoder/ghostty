@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 current_phase: Phase 5 — Window Title & Glob Matching
-status: planning
-last_updated: "2026-03-18T08:58:47.199Z"
+status: in_progress
+last_updated: "2026-03-18T11:12:00Z"
 progress:
   total_phases: 6
   completed_phases: 4
-  total_plans: 8
-  completed_plans: 8
+  total_plans: 9
+  completed_plans: 9
   percent: 100
 ---
 
@@ -48,7 +48,7 @@ Progress: [██████████] 100%
 | 2. Evaluation Engine | Complete | 1/1 | 02-01 |
 | 3. Process Name Detection | Complete | 2/2 | 03-01, 03-02 |
 | 4. OSC 1337 & UserVar Conditions | Complete | 3/3 | 04-01, 04-02, 04-03 |
-| 5. Window Title & Glob Matching | Not started | 0/? | - |
+| 5. Window Title & Glob Matching | In Progress | 1/1 | 05-01 |
 | 6. Platform Validation & Documentation | Not started | 0/? | - |
 
 ---
@@ -193,5 +193,13 @@ Progress: [██████████] 100%
 - Updated matchesCondition var_ case to use glob matching with fast exact-match short-circuit
 - Phase 4 complete: all 3 plans done, full user variable pipeline operational
 - Stopped at: Completed 04-osc-1337-uservar-conditions-04-03-PLAN.md
+
+### Session 10 — 2026-03-18
+- Executed plan 05-01: Window title wiring and glob matching
+- Added test stubs for TITL-01, TITL-02, PROC-02 (TDD RED)
+- Wired runtime_context.title in Surface.zig (set_title handler, init seed, deinit cleanup)
+- Fixed pre-existing process_name leak in Surface.deinit
+- Replaced std.mem.eql with matchesGlob for .process and .title in matchesCondition (GREEN)
+- Stopped at: Completed 05-window-title-glob-matching-05-01-PLAN.md
 
 ---

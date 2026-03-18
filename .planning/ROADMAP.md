@@ -13,7 +13,7 @@
 - [x] **Phase 2: Evaluation Engine** - Wire RuntimeContext into Surface and implement condition evaluation on the keypress path (completed 2026-03-18)
 - [x] **Phase 3: Process Name Detection** - Platform-specific foreground process polling; end-to-end process-name exact match (completed 2026-03-18)
 - [x] **Phase 4: OSC 1337 & UserVar Conditions** - Implement SetUserVar pipeline; add UserVar condition type (completed 2026-03-18)
-- [ ] **Phase 5: Window Title & Glob Matching** - Add window_title condition type; add glob pattern support for all condition types
+- [x] **Phase 5: Window Title & Glob Matching** - Add window_title condition type; add glob pattern support for all condition types (completed 2026-03-18)
 - [ ] **Phase 6: Platform Validation & Documentation** - Cross-platform verification; keybind doc comment update
 
 ---
@@ -90,7 +90,7 @@ Plans:
   2. A glob pattern `[title=vim:*]ctrl+s=write_scrollback_file` fires for any title starting with `"vim:"`
   3. A glob pattern `[process=nvim*]ctrl+w=close_surface` matches both `"nvim"` and `"nvim-qt"` process names
   4. Glob patterns are compiled at config-load time; no pattern compilation occurs on the keypress path
-**Plans:** 1 plan
+**Plans:** 1/1 plans complete
 
 Plans:
 - [ ] 05-01-PLAN.md — Wire runtime_context.title + enable glob matching for process/title conditions
@@ -116,7 +116,7 @@ Plans:
 | 2. Evaluation Engine | 1/1 | Complete   | 2026-03-18 |
 | 3. Process Name Detection | 2/2 | Complete   | 2026-03-18 |
 | 4. OSC 1337 & UserVar Conditions | 3/3 | Complete   | 2026-03-18 |
-| 5. Window Title & Glob Matching | 0/1 | Not started | - |
+| 5. Window Title & Glob Matching | 1/1 | Complete   | 2026-03-18 |
 | 6. Platform Validation & Documentation | 0/? | Not started | - |
 
 ---
