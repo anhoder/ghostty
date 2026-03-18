@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: Phase 4 — OSC 1337 & UserVar Conditions (In Progress)
-status: Ready
-last_updated: "2026-03-18T08:52:22.201Z"
+current_phase: Phase 5 — Window Title & Glob Matching
+status: planning
+last_updated: "2026-03-18T08:58:47.199Z"
 progress:
   total_phases: 6
   completed_phases: 4
@@ -32,7 +32,7 @@ progress:
 
 **Current phase:** Phase 5 — Window Title & Glob Matching
 **Next phase:** Phase 6 — Platform Validation & Documentation
-**Status:** Ready
+**Status:** Ready to plan
 
 ```
 Progress: [██████████] 100%
