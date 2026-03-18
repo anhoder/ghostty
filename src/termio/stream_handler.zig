@@ -331,6 +331,7 @@ pub const StreamHandler = struct {
             .start_hyperlink => try self.startHyperlink(value.uri, value.id),
             .clipboard_contents => try self.clipboardContents(value.kind, value.data),
             .semantic_prompt => try self.semanticPrompt(value),
+            .set_user_var => self.setUserVar(value.name, value.data),
             .mouse_shape => try self.setMouseShape(value),
             .configure_charset => self.configureCharset(value.slot, value.charset),
             .set_attribute => {
@@ -1198,6 +1199,45 @@ pub const StreamHandler = struct {
             try self.windowTitle(path);
             self.seen_title = false;
         }
+    }
+
+    fn setUserVar(self: *StreamHandler, name: [:0]const u8, data: [:0]const u8) void {
+        // Decode the base64-encoded value.
+        var decode_buf: [256]u8 = undefined;
+        const decoded_len = std.base64.standard.Decoder.calcSizeForSlice(data) catch |err| {
+            log.warn("OSC 1337 SetUserVar: invalid base64 length for var={s} err={}", .{ name, err });
+            return;
+        };
+        if (decoded_len > decode_buf.len) {
+            log.warn("OSC 1337 SetUserVar: decoded value too large ({d} bytes) for var={s}, truncating", .{ decoded_len, name });
+        }
+        const buf_slice = decode_buf[0..@min(decoded_len, decode_buf.len)];
+        std.base64.standard.Decoder.decode(buf_slice, data) catch |err| {
+            log.warn("OSC 1337 SetUserVar: base64 decode failed for var={s} err={}", .{ name, err });
+            return;
+        };
+
+        // Build the fixed-size message struct.
+        var msg: apprt.surface.Message = .{ .set_user_var = .{
+            .name = std.mem.zeroes([63:0]u8),
+            .value = std.mem.zeroes([191:0]u8),
+        } };
+
+        // Copy name, truncating if necessary.
+        const name_len = @min(name.len, 63);
+        if (name.len > 63) {
+            log.warn("OSC 1337 SetUserVar: name too long ({d} bytes), truncating to 63", .{name.len});
+        }
+        @memcpy(msg.set_user_var.name[0..name_len], name[0..name_len]);
+
+        // Copy decoded value, truncating if necessary.
+        const value_len = @min(buf_slice.len, 191);
+        if (buf_slice.len > 191) {
+            log.warn("OSC 1337 SetUserVar: value too long ({d} bytes), truncating to 191", .{buf_slice.len});
+        }
+        @memcpy(msg.set_user_var.value[0..value_len], buf_slice[0..value_len]);
+
+        self.surfaceMessageWriter(msg);
     }
 
     fn colorOperation(
