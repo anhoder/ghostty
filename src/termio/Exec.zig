@@ -318,12 +318,14 @@ fn detectProcessName(
     pty_master_fd: posix.fd_t,
 ) !void {
     const name = try internal_os.process.getForegroundProcessName(
-        td.arena.allocator(),
+        td.alloc,
         pty_master_fd,
     ) orelse return;
+    defer td.alloc.free(name);
 
+    const req = try apprt.surface.Message.WriteReq.init(td.alloc, name);
     _ = td.surface_mailbox.push(.{
-        .process_name_update = .{ .name = name },
+        .process_name_update = req,
     }, .{ .forever = {} });
 }
 

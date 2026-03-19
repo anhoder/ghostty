@@ -19,11 +19,15 @@ pub fn getForegroundProcessName(
     };
 }
 
+const c_unistd = @cImport({
+    @cInclude("unistd.h");
+});
+
 fn getForegroundProcessNameLinux(
     alloc: Allocator,
     pty_master_fd: posix.fd_t,
 ) !?[]const u8 {
-    const pgid = std.c.tcgetpgrp(pty_master_fd);
+    const pgid = c_unistd.tcgetpgrp(pty_master_fd);
     if (pgid <= 0) return null;
 
     var proc_dir = std.fs.openDirAbsolute("/proc", .{ .iterate = true }) catch |err| {
@@ -38,7 +42,7 @@ fn getForegroundProcessNameLinux(
 
         const pid = std.fmt.parseInt(posix.pid_t, entry.name, 10) catch continue;
 
-        const pid_pgid = std.c.getpgid(pid);
+        const pid_pgid = c_unistd.getpgid(pid);
         if (pid_pgid == pgid) {
             var buf: [32]u8 = undefined;
             const comm_path = std.fmt.bufPrint(&buf, "/proc/{d}/comm", .{pid}) catch continue;
@@ -62,7 +66,7 @@ fn getForegroundProcessNameBSD(
     alloc: Allocator,
     pty_master_fd: posix.fd_t,
 ) !?[]const u8 {
-    const pgid = std.c.tcgetpgrp(pty_master_fd);
+    const pgid = c_unistd.tcgetpgrp(pty_master_fd);
     if (pgid <= 0) return null;
 
     const c = @cImport({
@@ -78,7 +82,7 @@ fn getForegroundProcessNameBSD(
     for (pids_buf[0..@intCast(pid_count)]) |pid| {
         if (pid <= 0) continue;
 
-        const pid_pgid = std.c.getpgid(pid);
+        const pid_pgid = c_unistd.getpgid(pid);
         if (pid_pgid == pgid) {
             var bsdinfo: c.proc_bsdinfo = undefined;
             const ret = c.proc_pidinfo(
