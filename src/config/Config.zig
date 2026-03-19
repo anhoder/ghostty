@@ -1865,6 +1865,66 @@ class: ?[:0]const u8 = null,
 ///     `foo/global:ctrl+a=new_window`.
 ///
 /// Key tables are available since Ghostty 1.3.0.
+///
+/// ## Conditional Bindings
+///
+/// Conditional bindings allow a keybind to fire only when a specific runtime
+/// condition is true. The syntax wraps a condition in square brackets before
+/// the trigger:
+///
+///     keybind = [condition]trigger=action
+///
+/// Only one condition is allowed per binding. Multiple conditions (AND/OR)
+/// are not supported in v1.
+///
+/// ### Condition Types
+///
+/// **`process=<name>`** — Matches the name of the foreground process running
+/// in the terminal. Glob patterns (`*` and `?`) are supported.
+///
+///     keybind = [process=vim]ctrl+w=close_surface
+///     keybind = [process=nvim*]ctrl+w=close_surface
+///
+/// Note: Process-name detection is polled approximately every 200ms in the
+/// background. There is an eventual-consistency window of up to ~200ms between
+/// when a process starts and when the condition becomes active. For
+/// latency-critical use cases, prefer `var=` conditions set via OSC 1337.
+///
+/// **`title=<pattern>`** — Matches the current window title. Glob patterns
+/// (`*` and `?`) are supported.
+///
+///     keybind = [title=vim:*]ctrl+s=write_scrollback_file:~/output.txt
+///
+/// **`var=<name>:<value>`** — Matches a user variable set via the iTerm2
+/// OSC 1337 SetUserVar escape sequence. The name and value are separated by
+/// a colon. Glob patterns are supported in the value.
+///
+///     keybind = [var=in_vim:1]ctrl+w=close_surface
+///
+/// User variables are set from the shell or application using:
+///
+///     printf '\e]1337;SetUserVar=<name>=<base64-value>\a'
+///
+/// For example, to set `in_vim=1`:
+///
+///     printf '\e]1337;SetUserVar=in_vim=%s\a' "$(printf '1' | base64)"
+///
+/// ### Priority
+///
+/// Conditional bindings are checked before unconditional bindings. If a
+/// condition matches, the conditional binding fires and the unconditional
+/// binding for the same trigger is not evaluated. If no condition matches,
+/// the unconditional binding fires as a fallback. When multiple conditional
+/// bindings share the same trigger, the last one written in the config wins.
+///
+/// ### Limitations (v1)
+///
+///   * Only one condition per binding. AND/OR combinations are not supported.
+///   * Conditional bindings are not supported for key sequences
+///     (e.g., `ctrl+a>ctrl+b`).
+///   * The `global:` and `all:` prefixes are not supported with conditional
+///     bindings.
+///
 keybind: Keybinds = .{},
 
 /// Remap modifier keys within Ghostty. This allows you to swap or reassign
