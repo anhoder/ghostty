@@ -104,7 +104,10 @@ Plans:
   2. The full conditional keybinding test suite passes on Linux (process, title, uservar, glob)
   3. The `keybind` doc comment in `Config.zig` (which generates the man page) documents all condition types with at least one example each
   4. The documentation explicitly notes the ~200ms eventual-consistency window for process-name conditions
-**Plans**: TBD
+**Plans:** 1 plan
+
+Plans:
+- [ ] 06-01-PLAN.md — Add conditional bindings documentation to Config.zig keybind doc comment + test verification
 
 ---
 
@@ -117,7 +120,7 @@ Plans:
 | 3. Process Name Detection | 2/2 | Complete   | 2026-03-18 |
 | 4. OSC 1337 & UserVar Conditions | 3/3 | Complete   | 2026-03-18 |
 | 5. Window Title & Glob Matching | 1/1 | Complete   | 2026-03-18 |
-| 6. Platform Validation & Documentation | 0/? | Not started | - |
+| 6. Platform Validation & Documentation | 0/1 | In progress | - |
 
 ---
 
