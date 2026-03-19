@@ -407,6 +407,18 @@ pub const Action = union(Key) {
     pub const SetUserVar = struct {
         name: [:0]const u8,
         data: [:0]const u8,
+
+        pub const C = extern struct {
+            name: lib.String,
+            data: lib.String,
+        };
+
+        pub fn cval(self: SetUserVar) SetUserVar.C {
+            return .{
+                .name = .init(self.name),
+                .data = .init(self.data),
+            };
+        }
     };
 };
 
