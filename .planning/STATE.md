@@ -2,21 +2,21 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: Phase 5 — Window Title & Glob Matching
-status: planning
-last_updated: "2026-03-18T11:20:14.464Z"
+current_phase: Phase 6 — Platform Validation & Documentation
+status: complete
+last_updated: "2026-03-19T01:58:00Z"
 progress:
   total_phases: 6
-  completed_phases: 5
-  total_plans: 9
-  completed_plans: 9
+  completed_phases: 6
+  total_plans: 10
+  completed_plans: 10
   percent: 100
 ---
 
 # Project State: Ghostty 条件性快捷键配置
 
-**Last updated:** 2026-03-18
-**Session:** 7
+**Last updated:** 2026-03-19
+**Session:** 11
 
 ---
 
@@ -30,9 +30,9 @@ progress:
 
 ## Current Position
 
-**Current phase:** Phase 5 — Window Title & Glob Matching
-**Next phase:** Phase 6 — Platform Validation & Documentation
-**Status:** Ready to plan
+**Current phase:** Phase 6 — Platform Validation & Documentation
+**Next phase:** (none — all phases complete)
+**Status:** Complete
 
 ```
 Progress: [██████████] 100%
@@ -48,8 +48,8 @@ Progress: [██████████] 100%
 | 2. Evaluation Engine | Complete | 1/1 | 02-01 |
 | 3. Process Name Detection | Complete | 2/2 | 03-01, 03-02 |
 | 4. OSC 1337 & UserVar Conditions | Complete | 3/3 | 04-01, 04-02, 04-03 |
-| 5. Window Title & Glob Matching | In Progress | 1/1 | 05-01 |
-| 6. Platform Validation & Documentation | Not started | 0/? | - |
+| 5. Window Title & Glob Matching | Complete | 1/1 | 05-01 |
+| 6. Platform Validation & Documentation | Complete | 1/1 | 06-01 |
 
 ---
 
@@ -201,5 +201,13 @@ Progress: [██████████] 100%
 - Fixed pre-existing process_name leak in Surface.deinit
 - Replaced std.mem.eql with matchesGlob for .process and .title in matchesCondition (GREEN)
 - Stopped at: Completed 05-window-title-glob-matching-05-01-PLAN.md
+
+### Session 11 — 2026-03-19
+- Executed plan 06-01: Platform validation and documentation
+- Added ## Conditional Bindings section to keybind doc comment in Config.zig
+- Documents all three condition types (process, title, var) with examples
+- Notes ~200ms eventual-consistency window scoped to process conditions only
+- zig ast-check passes on Config.zig and Binding.zig; full test run deferred to CI (no network)
+- Stopped at: Completed 06-platform-validation-documentation-06-01-PLAN.md (awaiting human verify)
 
 ---

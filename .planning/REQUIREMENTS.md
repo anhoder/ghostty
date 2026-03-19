@@ -35,8 +35,8 @@
 
 ### 平台支持 (PLAT)
 
-- [ ] **PLAT-01**: 所有条件匹配功能在 macOS 上正常工作
-- [ ] **PLAT-02**: 所有条件匹配功能在 Linux 上正常工作
+- [x] **PLAT-01**: 所有条件匹配功能在 macOS 上正常工作
+- [x] **PLAT-02**: 所有条件匹配功能在 Linux 上正常工作
 
 ## v2 Requirements
 
@@ -78,8 +78,8 @@
 | TITL-01 | Phase 5 | Complete |
 | TITL-02 | Phase 5 | Complete |
 | PROC-02 | Phase 5 | Complete |
-| PLAT-01 | Phase 6 | Pending |
-| PLAT-02 | Phase 6 | Pending |
+| PLAT-01 | Phase 6 | Complete |
+| PLAT-02 | Phase 6 | Complete |
 
 **Coverage:**
 - v1 requirements: 18 total

@@ -14,7 +14,7 @@
 - [x] **Phase 3: Process Name Detection** - Platform-specific foreground process polling; end-to-end process-name exact match (completed 2026-03-18)
 - [x] **Phase 4: OSC 1337 & UserVar Conditions** - Implement SetUserVar pipeline; add UserVar condition type (completed 2026-03-18)
 - [x] **Phase 5: Window Title & Glob Matching** - Add window_title condition type; add glob pattern support for all condition types (completed 2026-03-18)
-- [ ] **Phase 6: Platform Validation & Documentation** - Cross-platform verification; keybind doc comment update
+- [x] **Phase 6: Platform Validation & Documentation** - Cross-platform verification; keybind doc comment update (completed 2026-03-19)
 
 ---
 
@@ -104,7 +104,7 @@ Plans:
   2. The full conditional keybinding test suite passes on Linux (process, title, uservar, glob)
   3. The `keybind` doc comment in `Config.zig` (which generates the man page) documents all condition types with at least one example each
   4. The documentation explicitly notes the ~200ms eventual-consistency window for process-name conditions
-**Plans:** 1 plan
+**Plans:** 1/1 plans complete
 
 Plans:
 - [ ] 06-01-PLAN.md — Add conditional bindings documentation to Config.zig keybind doc comment + test verification
@@ -120,7 +120,7 @@ Plans:
 | 3. Process Name Detection | 2/2 | Complete   | 2026-03-18 |
 | 4. OSC 1337 & UserVar Conditions | 3/3 | Complete   | 2026-03-18 |
 | 5. Window Title & Glob Matching | 1/1 | Complete   | 2026-03-18 |
-| 6. Platform Validation & Documentation | 0/1 | In progress | - |
+| 6. Platform Validation & Documentation | 1/1 | Complete   | 2026-03-19 |
 
 ---
 
