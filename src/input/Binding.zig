@@ -2635,10 +2635,13 @@ pub const Set = struct {
 
             .binding => |b| switch (b.action) {
                 .unbind => {
-                    // If this is a conditional unbind, remove from conditional_bindings.
-                    // Otherwise remove from the unconditional bindings HashMap.
+                    // If this is a conditional unbind, store it in conditional_bindings
+                    // so that getConditional can return null (pass-through) when the
+                    // condition matches. This prevents the unconditional binding from
+                    // firing when the condition is active.
+                    // For unconditional unbind, remove from the bindings HashMap.
                     if (it.condition) |cond| {
-                        set.removeConditional(b.trigger, cond);
+                        try set.putConditional(alloc, b.trigger, b.action, b.flags, cond);
                     } else {
                         set.remove(alloc, b.trigger);
                     }
@@ -2987,7 +2990,18 @@ pub const Set = struct {
             .mods = event.mods.binding(),
             .key = .{ .physical = event.key },
         };
-        if (self.getConditional(trigger, ctx)) |v| return v;
+        if (self.getConditional(trigger, ctx)) |v| {
+            // A conditional unbind means "pass the key through to the terminal
+            // application". We return unbind action with consumed=false so the
+            // caller can encode the key to the PTY while still claiming the
+            // binding exists (preventing OS-level shortcuts from firing).
+            if (v.action == .unbind and v.condition != null) return .{
+                .action = .unbind,
+                .flags = .{ .consumed = false },
+                .condition = v.condition,
+            };
+            return v;
+        }
 
         if (event.utf8.len > 0) unicode: {
             const view = std.unicode.Utf8View.init(event.utf8) catch break :unicode;
@@ -2995,19 +3009,47 @@ pub const Set = struct {
             const cp = it.nextCodepoint() orelse break :unicode;
             if (it.nextCodepoint() != null) break :unicode;
             trigger.key = .{ .unicode = cp };
-            if (self.getConditional(trigger, ctx)) |v| return v;
+            if (self.getConditional(trigger, ctx)) |v| {
+                if (v.action == .unbind and v.condition != null) return .{
+                    .action = .unbind,
+                    .flags = .{ .consumed = false },
+                    .condition = v.condition,
+                };
+                return v;
+            }
         }
 
         if (event.unshifted_codepoint > 0) {
             trigger.key = .{ .unicode = event.unshifted_codepoint };
-            if (self.getConditional(trigger, ctx)) |v| return v;
+            if (self.getConditional(trigger, ctx)) |v| {
+                if (v.action == .unbind and v.condition != null) return .{
+                    .action = .unbind,
+                    .flags = .{ .consumed = false },
+                    .condition = v.condition,
+                };
+                return v;
+            }
         }
 
         trigger.key = .catch_all;
-        if (self.getConditional(trigger, ctx)) |v| return v;
+        if (self.getConditional(trigger, ctx)) |v| {
+            if (v.action == .unbind and v.condition != null) return .{
+                .action = .unbind,
+                .flags = .{ .consumed = false },
+                .condition = v.condition,
+            };
+            return v;
+        }
         if (!trigger.mods.empty()) {
             trigger.mods = .{};
-            if (self.getConditional(trigger, ctx)) |v| return v;
+            if (self.getConditional(trigger, ctx)) |v| {
+                if (v.action == .unbind and v.condition != null) return .{
+                    .action = .unbind,
+                    .flags = .{ .consumed = false },
+                    .condition = v.condition,
+                };
+                return v;
+            }
         }
 
         return null;

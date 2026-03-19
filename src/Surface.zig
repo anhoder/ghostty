@@ -1110,7 +1110,9 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
         .password_input => |v| try self.passwordInput(v),
 
         .process_name_update => |update| {
-            defer self.alloc.free(update.name);
+            defer update.deinit();
+
+            const name_slice = update.slice();
 
             // Free old process name if exists
             if (self.runtime_context.process_name) |old| {
@@ -1118,23 +1120,26 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
             }
 
             // Store new process name (duplicate to Surface's allocator)
-            self.runtime_context.process_name = try self.alloc.dupe(u8, update.name);
+            self.runtime_context.process_name = try self.alloc.dupe(u8, name_slice);
         },
 
         .set_user_var => |uvar| {
+            const var_name = std.mem.sliceTo(&uvar.name, 0);
+            const var_value = std.mem.sliceTo(&uvar.value, 0);
+
             // Lazy-init the hashmap on first use
             if (self.runtime_context.user_vars == null) {
                 self.runtime_context.user_vars = .{};
             }
-
-            const var_name = std.mem.sliceTo(&uvar.name, 0);
-            const var_value = std.mem.sliceTo(&uvar.value, 0);
 
             // Free old key+value if this variable already exists
             if (self.runtime_context.user_vars.?.fetchRemove(var_name)) |kv| {
                 self.alloc.free(kv.key);
                 self.alloc.free(kv.value);
             }
+
+            // Empty value means clear the variable (don't re-insert)
+            if (var_value.len == 0) return;
 
             // Duplicate name and value into Surface's allocator
             const name_owned = try self.alloc.dupe(u8, var_name);
@@ -2995,6 +3000,23 @@ fn maybeHandleBinding(
             .actions = .{ .single = .{cond_result.action} },
         };
     };
+
+    // Conditional unbind: the key matched a conditional binding that says
+    // "pass through to terminal". We encode the key to the PTY and return
+    // .consumed to prevent the OS from handling it (e.g. macOS cmd+w).
+    for (leaf.actionsSlice()) |action| {
+        if (action == .unbind) {
+            if (try self.encodeKey(event, insp_ev)) |write_req| {
+                errdefer write_req.deinit();
+                self.queueIo(switch (write_req) {
+                    .small => |v| .{ .write_small = v },
+                    .stable => |v| .{ .write_stable = v },
+                    .alloc => |v| .{ .write_alloc = v },
+                }, .unlocked);
+            }
+            return .consumed;
+        }
+    }
 
     // consumed determines if the input is consumed or if we continue
     // encoding the key (if we have a key to encode).

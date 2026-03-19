@@ -1202,21 +1202,6 @@ pub const StreamHandler = struct {
     }
 
     fn setUserVar(self: *StreamHandler, name: [:0]const u8, data: [:0]const u8) void {
-        // Decode the base64-encoded value.
-        var decode_buf: [256]u8 = undefined;
-        const decoded_len = std.base64.standard.Decoder.calcSizeForSlice(data) catch |err| {
-            log.warn("OSC 1337 SetUserVar: invalid base64 length for var={s} err={}", .{ name, err });
-            return;
-        };
-        if (decoded_len > decode_buf.len) {
-            log.warn("OSC 1337 SetUserVar: decoded value too large ({d} bytes) for var={s}, truncating", .{ decoded_len, name });
-        }
-        const buf_slice = decode_buf[0..@min(decoded_len, decode_buf.len)];
-        std.base64.standard.Decoder.decode(buf_slice, data) catch |err| {
-            log.warn("OSC 1337 SetUserVar: base64 decode failed for var={s} err={}", .{ name, err });
-            return;
-        };
-
         // Build the fixed-size message struct.
         var msg: apprt.surface.Message = .{ .set_user_var = .{
             .name = std.mem.zeroes([63:0]u8),
@@ -1229,6 +1214,41 @@ pub const StreamHandler = struct {
             log.warn("OSC 1337 SetUserVar: name too long ({d} bytes), truncating to 63", .{name.len});
         }
         @memcpy(msg.set_user_var.name[0..name_len], name[0..name_len]);
+
+        // Empty data means "clear the variable" — send message with empty value.
+        if (data.len == 0) {
+            self.surfaceMessageWriter(msg);
+            return;
+        }
+
+        // Decode the base64-encoded value. Try standard (with padding) first,
+        // then fall back to no-pad for compatibility with clients that omit
+        // padding (e.g. kitty, neovim shell integration).
+        var decode_buf: [256]u8 = undefined;
+
+        const buf_slice = blk: {
+            if (std.base64.standard.Decoder.calcSizeForSlice(data)) |decoded_len| {
+                if (decoded_len <= decode_buf.len) {
+                    if (std.base64.standard.Decoder.decode(decode_buf[0..decoded_len], data)) |_| {
+                        break :blk decode_buf[0..decoded_len];
+                    } else |_| {}
+                }
+            } else |_| {}
+            // Fall back to no-pad decoder
+            const decoded_len = std.base64.standard_no_pad.Decoder.calcSizeForSlice(data) catch |err| {
+                log.warn("OSC 1337 SetUserVar: invalid base64 for var={s} err={}", .{ name, err });
+                return;
+            };
+            if (decoded_len > decode_buf.len) {
+                log.warn("OSC 1337 SetUserVar: decoded value too large ({d} bytes) for var={s}", .{ decoded_len, name });
+                return;
+            }
+            std.base64.standard_no_pad.Decoder.decode(decode_buf[0..decoded_len], data) catch |err| {
+                log.warn("OSC 1337 SetUserVar: base64 decode failed for var={s} err={}", .{ name, err });
+                return;
+            };
+            break :blk decode_buf[0..decoded_len];
+        };
 
         // Copy decoded value, truncating if necessary.
         const value_len = @min(buf_slice.len, 191);

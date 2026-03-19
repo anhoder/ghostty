@@ -156,34 +156,50 @@ pub fn parse(parser: *Parser, _: ?u8) ?*Command {
 
         .SetUserVar => {
             // Wire format: SetUserVar=<name>=<base64-value>
-            // value_ here is everything after the first '=' (i.e. "<name>=<base64-value>")
+            // To clear a variable: SetUserVar=<name> (no second '=')
+            // value_ here is everything after the first '=' (i.e. "<name>=<base64-value>" or "<name>")
             const value = value_ orelse {
                 parser.command = .invalid;
                 return null;
             };
 
-            // Split on the first '=' to separate name from base64 data
-            const sep = std.mem.indexOfScalar(u8, value, '=') orelse {
-                parser.command = .invalid;
-                return null;
-            };
+            // Split on the first '=' to separate name from base64 data.
+            // If there is no '=', this is a clear operation (empty data).
+            const sep = std.mem.indexOfScalar(u8, value, '=');
 
-            // Null-terminate the name by writing 0 at the separator position
-            value[sep] = 0;
-            const var_name: [:0]u8 = value[0..sep :0];
-            const var_data: [:0]u8 = value[sep + 1 .. value.len :0];
+            if (sep) |s| {
+                // Null-terminate the name by writing 0 at the separator position
+                value[s] = 0;
+                const var_name: [:0]u8 = value[0..s :0];
+                const var_data: [:0]u8 = value[s + 1 .. value.len :0];
 
-            if (var_name.len == 0 or var_data.len == 0) {
-                parser.command = .invalid;
-                return null;
+                if (var_name.len == 0) {
+                    parser.command = .invalid;
+                    return null;
+                }
+
+                parser.command = .{
+                    .set_user_var = .{
+                        .name = var_name,
+                        .data = var_data,
+                    },
+                };
+            } else {
+                // No '=' means clear the variable — send empty data
+                const var_name: [:0]u8 = value[0..value.len :0];
+
+                if (var_name.len == 0) {
+                    parser.command = .invalid;
+                    return null;
+                }
+
+                parser.command = .{
+                    .set_user_var = .{
+                        .name = var_name,
+                        .data = &[_:0]u8{},
+                    },
+                };
             }
-
-            parser.command = .{
-                .set_user_var = .{
-                    .name = var_name,
-                    .data = var_data,
-                },
-            };
             return &parser.command;
         },
 
