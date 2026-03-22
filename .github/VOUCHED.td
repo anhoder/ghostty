@@ -87,6 +87,7 @@ halosatrio
 heaths
 heddxh heddxh
 -highimpact-dev Disrespectful AI user
+hlcfan
 hqnna
 hulet
 icodesign
@@ -107,6 +108,7 @@ khipp
 kirwiisp
 kjvdven
 kloneets
+-kody-w
 koranir
 kristina8888
 kristofersoler
@@ -114,11 +116,13 @@ laxystem
 liby
 linustalacko
 lonsagisawa
+luisnquin
 mac0ne
 mahnokropotkinvich
 marijagjorgjieva
 markdorison
 markhuot
+marler8997
 marrocco-simone
 matkotiric
 micaeljarniac
@@ -173,8 +177,10 @@ ticclick
 tnagatomi
 trag1c
 tristan957
+turbolent
 tweedbeetle
 uhojin
+unphased
 uzaaft
 vaughanandrews
 vlsi
