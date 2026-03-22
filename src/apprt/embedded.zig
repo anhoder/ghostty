@@ -1763,6 +1763,14 @@ pub const CAPI = struct {
         surface: *Surface,
         event: KeyEvent,
     ) bool {
+        // Drain mailbox BEFORE processing the key event to ensure
+        // runtime_context (user_vars, process_name, title) is up to date.
+        // Without this, SetUserVar OSC 1337 messages that arrive just before
+        // a keypress would not be reflected in conditional binding checks.
+        surface.app.core_app.drainMailbox(surface.app) catch |err| {
+            log.warn("error draining mailbox before key event err={}", .{err});
+        };
+
         return surface.app.keyEvent(
             .{ .surface = surface },
             event.keyEvent(),

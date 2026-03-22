@@ -234,8 +234,9 @@ pub fn needsConfirmQuit(self: *const App) bool {
     return false;
 }
 
-/// Drain the mailbox.
-fn drainMailbox(self: *App, rt_app: *apprt.App) !void {
+/// Drain the mailbox. This ensures runtime_context (user_vars, process_name,
+/// title) is up to date before processing events that depend on it.
+pub fn drainMailbox(self: *App, rt_app: *apprt.App) !void {
     while (self.mailbox.pop()) |message| {
         if (comptime std.log.logEnabled(.debug, .app)) {
             switch (message) {
