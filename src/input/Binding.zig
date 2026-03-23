@@ -48,6 +48,20 @@ pub const Condition = union(enum) {
         value: []const u8,
     };
 
+    /// Deep clone the condition, duplicating all string slices into the
+    /// given allocator. Required when cloning a Set so that conditions
+    /// don't dangle after the original config memory is freed.
+    pub fn clone(self: Condition, alloc: Allocator) Allocator.Error!Condition {
+        return switch (self) {
+            .process => |v| .{ .process = try alloc.dupe(u8, v) },
+            .title => |v| .{ .title = try alloc.dupe(u8, v) },
+            .var_ => |v| .{ .var_ = .{
+                .name = try alloc.dupe(u8, v.name),
+                .value = try alloc.dupe(u8, v.value),
+            } },
+        };
+    }
+
     /// Compare two conditions for equality (value-based, not pointer-based).
     pub fn eql(a: Condition, b: Condition) bool {
         const tag_a = std.meta.activeTag(a);
@@ -3175,10 +3189,13 @@ pub const Set = struct {
             action.* = try action.clone(alloc);
         }
 
-        // Clone actions in conditional_bindings. Actions may contain
-        // allocated strings (e.g. text actions), so we deep-clone each.
+        // Clone actions and conditions in conditional_bindings. Actions may contain
+        // allocated strings (e.g. text actions), and conditions contain string
+        // slices that point into the original config's memory. Both must be
+        // deep-cloned to avoid dangling pointers after config reload.
         for (result.conditional_bindings.items) |*entry| {
             entry.action = try entry.action.clone(alloc);
+            entry.condition = try entry.condition.clone(alloc);
         }
 
         return result;
