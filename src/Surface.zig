@@ -1140,7 +1140,9 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
             }
 
             // Empty value means clear the variable (don't re-insert)
-            if (var_value.len == 0) return;
+            if (var_value.len == 0) {
+                return;
+            }
 
             // Duplicate name and value into Surface's allocator
             const name_owned = try self.alloc.dupe(u8, var_name);
@@ -5749,6 +5751,10 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
                 ),
             },
         ),
+
+        .dump_runtime_context => {
+            self.runtime_context.dumpState();
+        },
 
         .close_surface => self.close(),
 

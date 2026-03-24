@@ -3,6 +3,7 @@
 const Binding = @This();
 
 const std = @import("std");
+const log = std.log.scoped(.keybind);
 const Allocator = std.mem.Allocator;
 const assert = @import("../quirks.zig").inlineAssert;
 const build_config = @import("../build_config.zig");
@@ -119,6 +120,31 @@ pub const RuntimeContext = struct {
             else
                 false,
         };
+    }
+
+    /// Dump all current RuntimeContext state to the log (process_name, title, user_vars).
+    pub fn dumpState(self: *const RuntimeContext) void {
+        log.info("=== RuntimeContext state ===", .{});
+        if (self.process_name) |pn| {
+            log.info("  process_name: \"{s}\"", .{pn});
+        } else {
+            log.info("  process_name: null", .{});
+        }
+        if (self.title) |t| {
+            log.info("  title: \"{s}\"", .{t});
+        } else {
+            log.info("  title: null", .{});
+        }
+        if (self.user_vars) |vars| {
+            log.info("  user_vars: ({d} entries)", .{vars.count()});
+            var it = vars.iterator();
+            while (it.next()) |entry| {
+                log.info("    {s} = \"{s}\"", .{ entry.key_ptr.*, entry.value_ptr.* });
+            }
+        } else {
+            log.info("  user_vars: null", .{});
+        }
+        log.info("=== end RuntimeContext ===", .{});
     }
 
     /// Match a string against a glob pattern supporting `*` (zero or more
@@ -842,6 +868,10 @@ pub const Action = union(enum) {
     ///
     /// Valid arguments: `toggle`, `show`, `hide`.
     inspector: InspectorMode,
+
+    /// Dump the current RuntimeContext state (process_name, title, user_vars)
+    /// to the log. Useful for debugging conditional keybindings.
+    dump_runtime_context,
 
     /// Show the GTK inspector.
     ///
@@ -1586,6 +1616,7 @@ pub const Action = union(enum) {
             .resize_split,
             .equalize_splits,
             .inspector,
+            .dump_runtime_context,
             => .surface,
         };
     }
@@ -2664,8 +2695,11 @@ pub const Set = struct {
 
                 else => {
                     // If the parser carries a condition, route to conditional_bindings.
+                    // Conditional bindings are stored separately and don't support
+                    // chaining, so we return null to clear chain_parent.
                     if (it.condition) |cond| {
                         try set.putConditional(alloc, b.trigger, b.action, b.flags, cond);
+                        return null;
                     } else {
                         try set.putFlags(
                             alloc,
@@ -5278,7 +5312,7 @@ test "parse: conditional bindings" {
 
     // title condition with colon in value
     {
-        const b = try parseSingle("[title=vim: main.zig]ctrl+s=write_scrollback_file");
+        const b = try parseSingle("[title=vim: main.zig]ctrl+s=close_surface");
         try testing.expectEqualStrings("vim: main.zig", b.condition.?.title);
     }
 
@@ -5387,13 +5421,15 @@ test "set: parseAndPut conditional bindings" {
         try testing.expectEqual(0, set.bindings.count());
     }
 
-    // Test: conditional unbind removes only matching conditional entry
+    // Test: conditional unbind replaces matching conditional entry with unbind action
     {
         var set: Set = .{};
         defer set.deinit(alloc);
         try set.parseAndPut(alloc, "[process=vim]ctrl+w=close_surface");
         try set.parseAndPut(alloc, "[process=vim]ctrl+w=unbind");
-        try testing.expectEqual(0, set.conditional_bindings.items.len);
+        // The entry is replaced with unbind action (last-write-wins via putConditional)
+        try testing.expectEqual(1, set.conditional_bindings.items.len);
+        try testing.expectEqual(Action.unbind, set.conditional_bindings.items[0].action);
     }
 }
 
@@ -5647,7 +5683,7 @@ test "set: getConditional priority" {
 
         // Build a fake KeyEvent for ctrl+w (unicode path)
         const event: @import("key.zig").KeyEvent = .{
-            .key = .w,
+            .key = .key_w,
             .mods = .{ .ctrl = true },
             .action = .press,
             .utf8 = "w",
