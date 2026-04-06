@@ -10,6 +10,28 @@
 #include <stddef.h>
 #include <stdint.h>
 
+// Symbol visibility for shared library builds. On Windows, functions
+// are exported from the DLL when building and imported when consuming.
+// On other platforms with GCC/Clang, functions are marked with default
+// visibility so they remain accessible when the library is built with
+// -fvisibility=hidden. For static library builds, define GHOSTTY_STATIC
+// before including this header to make this a no-op.
+#ifndef GHOSTTY_API
+#if defined(GHOSTTY_STATIC)
+  #define GHOSTTY_API
+#elif defined(_WIN32) || defined(_WIN64)
+  #ifdef GHOSTTY_BUILD_SHARED
+    #define GHOSTTY_API __declspec(dllexport)
+  #else
+    #define GHOSTTY_API __declspec(dllimport)
+  #endif
+#elif defined(__GNUC__) && __GNUC__ >= 4
+  #define GHOSTTY_API __attribute__((visibility("default")))
+#else
+  #define GHOSTTY_API
+#endif
+#endif
+
 /**
  * Result codes for libghostty-vt operations.
  */
@@ -60,5 +82,40 @@ typedef struct {
  */
 #define GHOSTTY_INIT_SIZED(type) \
   ((type){ .size = sizeof(type) })
+
+/**
+ * Return a pointer to a null-terminated JSON string describing the
+ * layout of every C API struct for the current target.
+ *
+ * This is primarily useful for language bindings that can't easily
+ * set C struct fields and need to do so via byte offsets. For example,
+ * WebAssembly modules can't share struct definitions with the host.
+ *
+ * Example (abbreviated):
+ * @code{.json}
+ * {
+ *   "GhosttyMouseEncoderSize": {
+ *     "size": 40,
+ *     "align": 8,
+ *     "fields": {
+ *       "size":           { "offset": 0,  "size": 8, "type": "u64" },
+ *       "screen_width":   { "offset": 8,  "size": 4, "type": "u32" },
+ *       "screen_height":  { "offset": 12, "size": 4, "type": "u32" },
+ *       "cell_width":     { "offset": 16, "size": 4, "type": "u32" },
+ *       "cell_height":    { "offset": 20, "size": 4, "type": "u32" },
+ *       "padding_top":    { "offset": 24, "size": 4, "type": "u32" },
+ *       "padding_bottom": { "offset": 28, "size": 4, "type": "u32" },
+ *       "padding_right":  { "offset": 32, "size": 4, "type": "u32" },
+ *       "padding_left":   { "offset": 36, "size": 4, "type": "u32" }
+ *     }
+ *   }
+ * }
+ * @endcode
+ *
+ * The returned pointer is valid for the lifetime of the process.
+ *
+ * @return Pointer to the null-terminated JSON string.
+ */
+GHOSTTY_API const char *ghostty_type_json(void);
 
 #endif /* GHOSTTY_VT_TYPES_H */

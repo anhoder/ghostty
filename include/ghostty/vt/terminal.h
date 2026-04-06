@@ -34,6 +34,10 @@ extern "C" {
  * Once a terminal session is up and running, you can configure a key encoder
  * to write keyboard input via ghostty_key_encoder_setopt_from_terminal().
  *
+ * ### Example: VT stream processing
+ * @snippet c-vt-stream/src/main.c vt-stream-init
+ * @snippet c-vt-stream/src/main.c vt-stream-write
+ *
  * ## Effects
  *
  * By default, the terminal sequence processing with ghostty_terminal_vt_write() 
@@ -155,7 +159,7 @@ extern "C" {
  *
  * @ingroup terminal
  */
-typedef struct GhosttyTerminal* GhosttyTerminal;
+typedef struct GhosttyTerminalImpl* GhosttyTerminal;
 
 /**
  * Terminal initialization options.
@@ -764,7 +768,7 @@ typedef enum {
  *
  * @ingroup terminal
  */
-GhosttyResult ghostty_terminal_new(const GhosttyAllocator* allocator,
+GHOSTTY_API GhosttyResult ghostty_terminal_new(const GhosttyAllocator* allocator,
                                    GhosttyTerminal* terminal,
                                    GhosttyTerminalOptions options);
 
@@ -778,7 +782,7 @@ GhosttyResult ghostty_terminal_new(const GhosttyAllocator* allocator,
  *
  * @ingroup terminal
  */
-void ghostty_terminal_free(GhosttyTerminal terminal);
+GHOSTTY_API void ghostty_terminal_free(GhosttyTerminal terminal);
 
 /**
  * Perform a full reset of the terminal (RIS).
@@ -791,7 +795,7 @@ void ghostty_terminal_free(GhosttyTerminal terminal);
  *
  * @ingroup terminal
  */
-void ghostty_terminal_reset(GhosttyTerminal terminal);
+GHOSTTY_API void ghostty_terminal_reset(GhosttyTerminal terminal);
 
 /**
  * Resize the terminal to the given dimensions.
@@ -814,7 +818,7 @@ void ghostty_terminal_reset(GhosttyTerminal terminal);
  *
  * @ingroup terminal
  */
-GhosttyResult ghostty_terminal_resize(GhosttyTerminal terminal,
+GHOSTTY_API GhosttyResult ghostty_terminal_resize(GhosttyTerminal terminal,
                                       uint16_t cols,
                                       uint16_t rows,
                                       uint32_t cell_width_px,
@@ -840,7 +844,7 @@ GhosttyResult ghostty_terminal_resize(GhosttyTerminal terminal,
  *
  * @ingroup terminal
  */
-GhosttyResult ghostty_terminal_set(GhosttyTerminal terminal,
+GHOSTTY_API GhosttyResult ghostty_terminal_set(GhosttyTerminal terminal,
                                    GhosttyTerminalOption option,
                                    const void* value);
 
@@ -865,7 +869,7 @@ GhosttyResult ghostty_terminal_set(GhosttyTerminal terminal,
  *
  * @ingroup terminal
  */
-void ghostty_terminal_vt_write(GhosttyTerminal terminal,
+GHOSTTY_API void ghostty_terminal_vt_write(GhosttyTerminal terminal,
                                 const uint8_t* data,
                                 size_t len);
 
@@ -882,7 +886,7 @@ void ghostty_terminal_vt_write(GhosttyTerminal terminal,
  *
  * @ingroup terminal
  */
-void ghostty_terminal_scroll_viewport(GhosttyTerminal terminal,
+GHOSTTY_API void ghostty_terminal_scroll_viewport(GhosttyTerminal terminal,
                                        GhosttyTerminalScrollViewport behavior);
 
 /**
@@ -899,7 +903,7 @@ void ghostty_terminal_scroll_viewport(GhosttyTerminal terminal,
  *
  * @ingroup terminal
  */
-GhosttyResult ghostty_terminal_mode_get(GhosttyTerminal terminal,
+GHOSTTY_API GhosttyResult ghostty_terminal_mode_get(GhosttyTerminal terminal,
                                         GhosttyMode mode,
                                         bool* out_value);
 
@@ -916,7 +920,7 @@ GhosttyResult ghostty_terminal_mode_get(GhosttyTerminal terminal,
  *
  * @ingroup terminal
  */
-GhosttyResult ghostty_terminal_mode_set(GhosttyTerminal terminal,
+GHOSTTY_API GhosttyResult ghostty_terminal_mode_set(GhosttyTerminal terminal,
                                          GhosttyMode mode,
                                          bool value);
 
@@ -936,7 +940,7 @@ GhosttyResult ghostty_terminal_mode_set(GhosttyTerminal terminal,
  *
  * @ingroup terminal
  */
-GhosttyResult ghostty_terminal_get(GhosttyTerminal terminal,
+GHOSTTY_API GhosttyResult ghostty_terminal_get(GhosttyTerminal terminal,
                                     GhosttyTerminalData data,
                                     void *out);
 
@@ -966,7 +970,7 @@ GhosttyResult ghostty_terminal_get(GhosttyTerminal terminal,
  *
  * @ingroup terminal
  */
-GhosttyResult ghostty_terminal_grid_ref(GhosttyTerminal terminal,
+GHOSTTY_API GhosttyResult ghostty_terminal_grid_ref(GhosttyTerminal terminal,
                                         GhosttyPoint point,
                                         GhosttyGridRef *out_ref);
 
