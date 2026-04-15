@@ -20,6 +20,7 @@
 # "!denounce" or "!denounce [username]" on a discussion.
 00-kat
 04cb
+0xdvc
 aalhendi
 abdurrahmanski
 abudvytis
@@ -100,6 +101,7 @@ hqnna
 hulet
 i999rri
 icodesign
+illiakrauchanka
 j0hnm4r5
 jacobsandlund
 jake-stewart
@@ -116,10 +118,12 @@ jparise
 juniqlim
 justonia
 karesansui-u
+kataokatsuki
 kawarimidoll
 kayleung
 kenvandine
 khipp
+kierancanter
 kirwiisp
 kjvdven
 kloneets
@@ -152,6 +156,7 @@ mischief
 mitchellh
 miupa
 molechowski
+moonmao42
 mrconnorkenway
 mrmage
 mtak
@@ -165,6 +170,7 @@ noib3
 nwehg
 ocean6954
 oshdubh
+otomn
 paaloeye
 pan93412
 pangoraw
@@ -193,6 +199,7 @@ seruman
 silveirapf
 slsrepo
 sunshine-syz
+tbrundige
 tdgroot
 tdslot
 ticclick
