@@ -7382,7 +7382,10 @@ pub const Keybinds = struct {
 
     /// Like formatEntry but has an option to include docs.
     pub fn formatEntryDocs(self: Keybinds, formatter: formatterpkg.EntryFormatter, docs: bool) !void {
-        if (self.set.bindings.count() == 0 and self.tables.count() == 0) {
+        if (self.set.bindings.count() == 0 and
+            self.set.conditional_bindings.items.len == 0 and
+            self.tables.count() == 0)
+        {
             try formatter.formatEntry(void, {});
             return;
         }
@@ -7415,6 +7418,17 @@ pub const Keybinds = struct {
             var writer: std.Io.Writer = .fixed(&buf);
             writer.print("{f}", .{k}) catch return error.OutOfMemory;
             try v.formatEntries(&writer, formatter);
+        }
+
+        for (self.set.conditional_bindings.items) |entry| {
+            var writer: std.Io.Writer = .fixed(&buf);
+            switch (entry.condition) {
+                .process => |v| writer.print("[process={s}]", .{v}) catch return error.OutOfMemory,
+                .title => |v| writer.print("[title={s}]", .{v}) catch return error.OutOfMemory,
+                .var_ => |v| writer.print("[var={s}:{s}]", .{ v.name, v.value }) catch return error.OutOfMemory,
+            }
+            writer.print("{f}={f}", .{ entry.trigger, entry.action }) catch return error.OutOfMemory;
+            try formatter.formatEntry([]const u8, writer.buffer[0..writer.end]);
         }
 
         // Format table bindings

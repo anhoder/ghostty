@@ -314,6 +314,22 @@ fn flatpakExit(
     processExitCommon(td_.?, exit_code);
 }
 
+fn detectProcessName(
+    td: *termio.Termio.ThreadData,
+    pty_master_fd: posix.fd_t,
+) !void {
+    const name = try internal_os.process.getForegroundProcessName(
+        td.alloc,
+        pty_master_fd,
+    ) orelse return;
+    defer td.alloc.free(name);
+
+    const req = try apprt.surface.Message.WriteReq.init(td.alloc, name);
+    _ = td.surface_mailbox.push(.{
+        .process_name_update = req,
+    }, .{ .forever = {} });
+}
+
 fn termiosTimer(
     td_: ?*termio.Termio.ThreadData,
     _: *xev.Loop,
@@ -383,6 +399,12 @@ fn termiosTimer(
         _ = td.surface_mailbox.push(.{
             .password_input = password_input,
         }, .{ .forever = {} });
+    }
+
+    if (comptime builtin.os.tag != .windows) {
+        detectProcessName(td, exec.read_thread_fd) catch |err| {
+            log.warn("process name detection failed err={}", .{err});
+        };
     }
 
     // Repeat the timer

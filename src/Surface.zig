@@ -100,6 +100,10 @@ mouse: Mouse,
 /// Keyboard input state.
 keyboard: Keyboard,
 
+/// Runtime context for evaluating conditional keybindings. Updated by the
+/// process-detection subsystem and OSC handlers.
+runtime_context: input.Binding.RuntimeContext = .{},
+
 /// A currently pressed key. This is used so that we can send a keyboard
 /// release event when the surface is unfocused. Note that when the surface
 /// is refocused, a key press event may not be sent again -- this depends
@@ -748,6 +752,7 @@ pub fn init(
     };
 
     if (config.title) |title| {
+        self.runtime_context.title = try alloc.dupe(u8, title[0..title.len]);
         _ = try rt_app.performAction(
             .{ .surface = self },
             .set_title,
@@ -834,6 +839,17 @@ pub fn deinit(self: *Surface) void {
 
     // Clean up our font grid
     self.app.font_grid_set.deref(self.font_grid_key);
+
+    if (self.runtime_context.user_vars) |*vars| {
+        var it = vars.iterator();
+        while (it.next()) |entry| {
+            self.alloc.free(entry.key_ptr.*);
+            self.alloc.free(entry.value_ptr.*);
+        }
+        vars.deinit(self.alloc);
+    }
+    if (self.runtime_context.title) |t| self.alloc.free(t);
+    if (self.runtime_context.process_name) |p| self.alloc.free(p);
 
     // Clean up our render state
     if (self.renderer_state.preedit) |p| self.alloc.free(p.codepoints);
@@ -968,15 +984,19 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
         .change_config => |config| try self.updateConfig(config),
 
         .set_title => |*v| {
-            // We ignore the message in case the title was set via config.
+            const slice = std.mem.sliceTo(@as([*:0]const u8, @ptrCast(v)), 0);
+
+            if (self.runtime_context.title) |old| self.alloc.free(old);
+            self.runtime_context.title = self.alloc.dupe(u8, slice) catch |err| blk: {
+                log.warn("failed to dupe title for runtime context: {}", .{err});
+                break :blk null;
+            };
+
             if (self.config.title != null) {
                 log.debug("ignoring title change request since static title is set via config", .{});
                 return;
             }
 
-            // The ptrCast just gets sliceTo to return the proper type.
-            // We know that our title should end in 0.
-            const slice = std.mem.sliceTo(@as([*:0]const u8, @ptrCast(v)), 0);
             log.debug("changing title \"{s}\"", .{slice});
             _ = try self.rt_app.performAction(
                 .{ .surface = self },
@@ -1100,6 +1120,41 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
         .present_surface => try self.presentSurface(),
 
         .password_input => |v| try self.passwordInput(v),
+
+        .process_name_update => |update| {
+            defer update.deinit();
+
+            const name_slice = update.slice();
+            if (self.runtime_context.process_name) |old| {
+                self.alloc.free(old);
+            }
+            self.runtime_context.process_name = try self.alloc.dupe(u8, name_slice);
+        },
+
+        .set_user_var => |uvar| {
+            const var_name = std.mem.sliceTo(&uvar.name, 0);
+            const var_value = std.mem.sliceTo(&uvar.value, 0);
+
+            if (self.runtime_context.user_vars == null) {
+                self.runtime_context.user_vars = .{};
+            }
+
+            if (self.runtime_context.user_vars.?.fetchRemove(var_name)) |kv| {
+                self.alloc.free(kv.key);
+                self.alloc.free(kv.value);
+            }
+
+            if (var_value.len == 0) {
+                return;
+            }
+
+            const name_owned = try self.alloc.dupe(u8, var_name);
+            errdefer self.alloc.free(name_owned);
+            const value_owned = try self.alloc.dupe(u8, var_value);
+            errdefer self.alloc.free(value_owned);
+
+            try self.runtime_context.user_vars.?.put(self.alloc, name_owned, value_owned);
+        },
 
         .ring_bell => bell: {
             const now = std.time.Instant.now() catch unreachable;
@@ -2643,8 +2698,12 @@ pub fn keyEventIsBinding(
             }
         }
 
-        // Check the root set
-        break :entry self.config.keybind.set.getEvent(event) orelse return null;
+        // Check the root set using conditional evaluation
+        const cond_result = self.config.keybind.set.getEventConditional(
+            event,
+            &self.runtime_context,
+        ) orelse return null;
+        return cond_result.flags;
     };
 
     // Return flags based on the
@@ -2877,90 +2936,100 @@ fn maybeHandleBinding(
     }
 
     // Find an entry in the keybind set that matches our event.
-    const entry: input.Binding.Set.Entry = entry: {
+    // For the root set, we use getEventConditional to support conditional
+    // bindings. Sequence and table paths still use getEvent.
+    const leaf: input.Binding.Set.GenericLeaf = leaf: {
         // Handle key sequences first.
         if (self.keyboard.sequence_set) |set| {
-            // Get our entry from the set for the given event.
-            if (set.getEvent(event)) |v| break :entry v;
+            if (set.getEvent(event)) |v| {
+                break :leaf switch (v.value_ptr.*) {
+                    .leader => |seq_set| {
+                        self.keyboard.sequence_set = seq_set;
+                        if (try self.encodeKey(event, insp_ev)) |req| {
+                            try self.keyboard.sequence_queued.append(self.alloc, req);
+                        }
+                        _ = self.rt_app.performAction(
+                            .{ .surface = self },
+                            .key_sequence,
+                            .{ .trigger = v.key_ptr.* },
+                        ) catch |err| {
+                            log.warn(
+                                "failed to notify app of key sequence err={}",
+                                .{err},
+                            );
+                        };
+                        return .consumed;
+                    },
+                    inline .leaf, .leaf_chained => |l| l.generic(),
+                };
+            }
 
-            // No entry found. We need to encode everything up to this
-            // point and send to the pty since we're in a sequence.
-
-            // We ignore modifiers so that nested sequences such as
-            // ctrl+a>ctrl+b>c work.
             if (event.key.modifier()) return null;
-
-            // If we have a catch-all of ignore, then we special case our
-            // invalid sequence handling to ignore it.
             if (self.catchAllIsIgnore()) {
                 self.endKeySequence(.drop, .retain);
                 return .ignored;
             }
-
-            // Encode everything up to this point
             self.endKeySequence(.flush, .retain);
-
             return null;
         }
 
-        // No currently active sequence, move on to tables. For tables,
-        // we search inner-most table to outer-most. The table stack does
-        // NOT include the root set.
         const table_items = self.keyboard.table_stack.items;
         if (table_items.len > 0) {
             for (0..table_items.len) |i| {
                 const rev_i: usize = table_items.len - 1 - i;
                 const table = table_items[rev_i];
                 if (table.set.getEvent(event)) |v| {
-                    // If this is a one-shot activation AND its the currently
-                    // active table, then we deactivate it after this.
-                    // Note: we may want to change the semantics here to
-                    // remove this table no matter where it is in the stack,
-                    // maybe.
                     if (table.once and i == 0) _ = try self.performBindingAction(
                         .deactivate_key_table,
                     );
 
-                    break :entry v;
+                    break :leaf switch (v.value_ptr.*) {
+                        .leader => |seq_set| {
+                            self.keyboard.sequence_set = seq_set;
+                            if (try self.encodeKey(event, insp_ev)) |req| {
+                                try self.keyboard.sequence_queued.append(self.alloc, req);
+                            }
+                            _ = self.rt_app.performAction(
+                                .{ .surface = self },
+                                .key_sequence,
+                                .{ .trigger = v.key_ptr.* },
+                            ) catch |err| {
+                                log.warn(
+                                    "failed to notify app of key sequence err={}",
+                                    .{err},
+                                );
+                            };
+                            return .consumed;
+                        },
+                        inline .leaf, .leaf_chained => |l| l.generic(),
+                    };
                 }
             }
         }
 
-        // No table, use our default set
-        break :entry self.config.keybind.set.getEvent(event) orelse
-            return null;
+        const cond_result = self.config.keybind.set.getEventConditional(
+            event,
+            &self.runtime_context,
+        ) orelse return null;
+        break :leaf .{
+            .flags = cond_result.flags,
+            .actions = .{ .single = .{cond_result.action} },
+        };
     };
 
-    // Determine if this entry has an action or if its a leader key.
-    const leaf: input.Binding.Set.GenericLeaf = switch (entry.value_ptr.*) {
-        .leader => |set| {
-            // Setup the next set we'll look at.
-            self.keyboard.sequence_set = set;
-
-            // Store this event so that we can drain and encode on invalid.
-            // We don't need to cap this because it is naturally capped by
-            // the config validation.
-            if (try self.encodeKey(event, insp_ev)) |req| {
-                try self.keyboard.sequence_queued.append(self.alloc, req);
+    for (leaf.actionsSlice()) |action| {
+        if (action == .unbind) {
+            if (try self.encodeKey(event, insp_ev)) |write_req| {
+                errdefer write_req.deinit();
+                self.queueIo(switch (write_req) {
+                    .small => |v| .{ .write_small = v },
+                    .stable => |v| .{ .write_stable = v },
+                    .alloc => |v| .{ .write_alloc = v },
+                }, .unlocked);
             }
-
-            // Start or continue our key sequence
-            _ = self.rt_app.performAction(
-                .{ .surface = self },
-                .key_sequence,
-                .{ .trigger = entry.key_ptr.* },
-            ) catch |err| {
-                log.warn(
-                    "failed to notify app of key sequence err={}",
-                    .{err},
-                );
-            };
-
             return .consumed;
-        },
-
-        inline .leaf, .leaf_chained => |leaf| leaf.generic(),
-    };
+        }
+    }
 
     // consumed determines if the input is consumed or if we continue
     // encoding the key (if we have a key to encode).
@@ -5693,6 +5762,10 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
                 ),
             },
         ),
+
+        .dump_runtime_context => {
+            self.runtime_context.dumpState();
+        },
 
         .close_surface => self.close(),
 

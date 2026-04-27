@@ -154,6 +154,48 @@ pub fn parse(parser: *Parser, _: ?u8) ?*Command {
             return &parser.command;
         },
 
+        .SetUserVar => {
+            const value = value_ orelse {
+                parser.command = .invalid;
+                return null;
+            };
+
+            const sep = std.mem.indexOfScalar(u8, value, '=');
+
+            if (sep) |s| {
+                value[s] = 0;
+                const var_name: [:0]u8 = value[0..s :0];
+                const var_data: [:0]u8 = value[s + 1 .. value.len :0];
+
+                if (var_name.len == 0) {
+                    parser.command = .invalid;
+                    return null;
+                }
+
+                parser.command = .{
+                    .set_user_var = .{
+                        .name = var_name,
+                        .data = var_data,
+                    },
+                };
+            } else {
+                const var_name: [:0]u8 = value[0..value.len :0];
+
+                if (var_name.len == 0) {
+                    parser.command = .invalid;
+                    return null;
+                }
+
+                parser.command = .{
+                    .set_user_var = .{
+                        .name = var_name,
+                        .data = &[_:0]u8{},
+                    },
+                };
+            }
+            return &parser.command;
+        },
+
         .AddAnnotation,
         .AddHiddenAnnotation,
         .Block,
@@ -184,7 +226,6 @@ pub fn parse(parser: *Parser, _: ?u8) ?*Command {
         .SetKeyLabel,
         .SetMark,
         .SetProfile,
-        .SetUserVar,
         .ShellIntegrationVersion,
         .StealFocus,
         .UnicodeVersion,

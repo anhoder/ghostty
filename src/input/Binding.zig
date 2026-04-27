@@ -3,6 +3,7 @@
 const Binding = @This();
 
 const std = @import("std");
+const log = std.log.scoped(.keybind);
 const Allocator = std.mem.Allocator;
 const assert = @import("../quirks.zig").inlineAssert;
 const build_config = @import("../build_config.zig");
@@ -22,9 +23,179 @@ action: Action,
 /// Boolean flags that can be set per binding.
 flags: Flags = .{},
 
+/// Optional condition that must be true for this binding to be active.
+/// When null, the binding is always active (existing behavior).
+condition: ?Condition = null,
+
 pub const Error = error{
     InvalidFormat,
     InvalidAction,
+};
+
+/// A condition that must be true for this binding to be active.
+/// Conditions are specified with bracket syntax: `[process=vim]ctrl+w=close_surface`
+pub const Condition = union(enum) {
+    /// Match on the name of the foreground process running in the terminal.
+    process: []const u8,
+
+    /// Match on the terminal window title.
+    title: []const u8,
+
+    /// Match on a user-defined variable set via OSC 1337 SetUserVar.
+    var_: VarCondition,
+
+    pub const VarCondition = struct {
+        name: []const u8,
+        value: []const u8,
+    };
+
+    /// Deep clone the condition, duplicating all string slices into the
+    /// given allocator. Required when cloning a Set so that conditions
+    /// don't dangle after the original config memory is freed.
+    pub fn clone(self: Condition, alloc: Allocator) Allocator.Error!Condition {
+        return switch (self) {
+            .process => |v| .{ .process = try alloc.dupe(u8, v) },
+            .title => |v| .{ .title = try alloc.dupe(u8, v) },
+            .var_ => |v| .{ .var_ = .{
+                .name = try alloc.dupe(u8, v.name),
+                .value = try alloc.dupe(u8, v.value),
+            } },
+        };
+    }
+
+    /// Compare two conditions for equality (value-based, not pointer-based).
+    pub fn eql(a: Condition, b: Condition) bool {
+        const tag_a = std.meta.activeTag(a);
+        const tag_b = std.meta.activeTag(b);
+        if (tag_a != tag_b) return false;
+        return switch (a) {
+            .process => |v| std.mem.eql(u8, v, b.process),
+            .title => |v| std.mem.eql(u8, v, b.title),
+            .var_ => |v| std.mem.eql(u8, v.name, b.var_.name) and
+                std.mem.eql(u8, v.value, b.var_.value),
+        };
+    }
+};
+
+/// RuntimeContext holds the current runtime state used to evaluate conditional
+/// bindings at keypress time. All fields default to null (no information
+/// available), which causes all conditional bindings to fall through to the
+/// unconditional fallback.
+///
+/// This struct is stored on Surface and updated by the process-detection and
+/// OSC-handling subsystems (Phases 3 & 4). It is read on every keypress via
+/// matchesCondition — zero allocations, zero syscalls.
+pub const RuntimeContext = struct {
+    /// The name of the foreground process running in the terminal.
+    /// Null means "unknown" — no process condition will match.
+    process_name: ?[]const u8 = null,
+
+    /// The current terminal window title.
+    /// Null means "not set" — no title condition will match.
+    title: ?[]const u8 = null,
+
+    /// User-defined variables set via OSC 1337 SetUserVar.
+    /// Null means no variables have been set.
+    user_vars: ?std.StringHashMapUnmanaged([]const u8) = null,
+
+    /// Returns true if this context satisfies the given condition.
+    ///
+    /// All comparisons are pure in-memory string comparisons — no
+    /// allocations, no syscalls. Returns false for any null field
+    /// (i.e. "unknown" never matches any condition).
+    pub fn matchesCondition(self: *const RuntimeContext, cond: Condition) bool {
+        return switch (cond) {
+            .process => |name| if (self.process_name) |pn|
+                matchesGlob(pn, name)
+            else
+                false,
+
+            .title => |t| if (self.title) |ti|
+                matchesGlob(ti, t)
+            else
+                false,
+
+            .var_ => |v| if (self.user_vars) |vars|
+                if (vars.get(v.name)) |val| matchesGlob(val, v.value) else false
+            else
+                false,
+        };
+    }
+
+    /// Dump all current RuntimeContext state to the log (process_name, title, user_vars).
+    pub fn dumpState(self: *const RuntimeContext) void {
+        log.info("=== RuntimeContext state ===", .{});
+        if (self.process_name) |pn| {
+            log.info("  process_name: \"{s}\"", .{pn});
+        } else {
+            log.info("  process_name: null", .{});
+        }
+        if (self.title) |t| {
+            log.info("  title: \"{s}\"", .{t});
+        } else {
+            log.info("  title: null", .{});
+        }
+        if (self.user_vars) |vars| {
+            log.info("  user_vars: ({d} entries)", .{vars.count()});
+            var it = vars.iterator();
+            while (it.next()) |entry| {
+                log.info("    {s} = \"{s}\"", .{ entry.key_ptr.*, entry.value_ptr.* });
+            }
+        } else {
+            log.info("  user_vars: null", .{});
+        }
+        log.info("=== end RuntimeContext ===", .{});
+    }
+
+    /// Match a string against a glob pattern supporting `*` (zero or more
+    /// characters) and `?` (exactly one character). No allocations.
+    ///
+    /// Used for all condition types: process, title, and var_. Patterns like
+    /// `nvim*` match "nvim" and "nvim-qt"; `vim: *` matches any vim title.
+    /// Has a fast path that uses exact comparison when no wildcards are present.
+    fn matchesGlob(str: []const u8, pattern: []const u8) bool {
+        // Fast path: no wildcards — use exact comparison.
+        if (std.mem.indexOfAny(u8, pattern, "*?") == null) {
+            return std.mem.eql(u8, str, pattern);
+        }
+        return globMatchImpl(str, pattern);
+    }
+
+    /// Recursive glob matcher. Uses backtracking on `*`.
+    fn globMatchImpl(str: []const u8, pattern: []const u8) bool {
+        var si: usize = 0; // index into str
+        var pi: usize = 0; // index into pattern
+        // star_pi/star_si track the last `*` position for backtracking
+        var star_pi: usize = std.math.maxInt(usize);
+        var star_si: usize = 0;
+
+        while (si < str.len) {
+            if (pi < pattern.len and (pattern[pi] == '?' or pattern[pi] == str[si])) {
+                // Exact character match or `?` wildcard
+                si += 1;
+                pi += 1;
+            } else if (pi < pattern.len and pattern[pi] == '*') {
+                // `*` can match zero characters: record position and advance pattern only
+                star_pi = pi;
+                star_si = si;
+                pi += 1;
+            } else if (star_pi != std.math.maxInt(usize)) {
+                // Backtrack: `*` matches one more character
+                star_si += 1;
+                si = star_si;
+                pi = star_pi + 1;
+            } else {
+                return false;
+            }
+        }
+
+        // Consume any trailing `*` in pattern
+        while (pi < pattern.len and pattern[pi] == '*') {
+            pi += 1;
+        }
+
+        return pi == pattern.len;
+    }
 };
 
 /// Flags the full binding-scoped flags that can be set per binding.
@@ -76,6 +247,7 @@ pub const Parser = struct {
     action: Action,
     flags: Flags = .{},
     chain: bool,
+    condition: ?Condition = null,
 
     pub const Elem = union(enum) {
         /// A leader trigger in a sequence.
@@ -92,8 +264,12 @@ pub const Parser = struct {
     };
 
     pub fn init(raw_input: []const u8) Error!Parser {
-        const flags, const start_idx = try parseFlags(raw_input);
-        const input = raw_input[start_idx..];
+        // Parse condition first (condition prefix comes before flags)
+        const condition, const cond_end = try parseCondition(raw_input);
+        const after_condition = raw_input[cond_end..];
+
+        const flags, const start_idx = try parseFlags(after_condition);
+        const input = after_condition[start_idx..];
 
         // Find the equal sign. This is more complicated than it seems on
         // the surface because we need to ignore equal signs that are
@@ -125,9 +301,9 @@ pub const Parser = struct {
             return Error.InvalidFormat;
         };
 
-        // Detect chains. Chains must not have flags.
+        // Detect chains. Chains must not have flags or conditions.
         const chain = std.mem.eql(u8, input[0..eql_idx], "chain");
-        if (chain and start_idx > 0) return Error.InvalidFormat;
+        if (chain and (start_idx > 0 or cond_end > 0)) return Error.InvalidFormat;
 
         // Sequence iterator goes up to the equal, action is after. We can
         // parse the action now.
@@ -142,6 +318,7 @@ pub const Parser = struct {
             .action = try .parse(input[eql_idx + 1 ..]),
             .flags = flags,
             .chain = chain,
+            .condition = condition,
         };
     }
 
@@ -186,6 +363,49 @@ pub const Parser = struct {
         return .{ flags, start_idx };
     }
 
+    /// Parse an optional condition prefix of the form `[type=value]`.
+    /// Returns the parsed condition (or null) and the number of bytes consumed.
+    fn parseCondition(raw_input: []const u8) Error!struct { ?Condition, usize } {
+        if (raw_input.len == 0 or raw_input[0] != '[') return .{ null, 0 };
+
+        const close_idx = std.mem.indexOf(u8, raw_input, "]") orelse
+            return Error.InvalidFormat;
+        const content = raw_input[1..close_idx];
+
+        // Reject empty brackets
+        if (content.len == 0) return Error.InvalidFormat;
+
+        const eq_idx = std.mem.indexOf(u8, content, "=") orelse
+            return Error.InvalidFormat;
+        const cond_type = content[0..eq_idx];
+        const cond_value = content[eq_idx + 1 ..];
+
+        // Reject empty type or value
+        if (cond_type.len == 0 or cond_value.len == 0) return Error.InvalidFormat;
+
+        const condition: Condition = if (std.mem.eql(u8, cond_type, "process"))
+            .{ .process = cond_value }
+        else if (std.mem.eql(u8, cond_type, "title"))
+            .{ .title = cond_value }
+        else if (std.mem.eql(u8, cond_type, "var")) blk: {
+            const colon_idx = std.mem.indexOf(u8, cond_value, ":") orelse
+                return Error.InvalidFormat;
+            // Reject empty name or value in var condition
+            if (colon_idx == 0 or colon_idx == cond_value.len - 1)
+                return Error.InvalidFormat;
+            break :blk .{ .var_ = .{
+                .name = cond_value[0..colon_idx],
+                .value = cond_value[colon_idx + 1 ..],
+            } };
+        } else return Error.InvalidFormat; // Unknown condition type
+
+        // v1: reject multiple conditions — check if next char after ']' is '['
+        const after = raw_input[close_idx + 1 ..];
+        if (after.len > 0 and after[0] == '[') return Error.InvalidFormat;
+
+        return .{ condition, close_idx + 1 };
+    }
+
     pub fn next(self: *Parser) Error!?Elem {
         // Get our trigger. If we're out of triggers then we're done.
         const trigger = (try self.trigger_it.next()) orelse return null;
@@ -205,6 +425,7 @@ pub const Parser = struct {
             .trigger = trigger,
             .action = self.action,
             .flags = self.flags,
+            .condition = self.condition,
         } };
     }
 
@@ -647,6 +868,10 @@ pub const Action = union(enum) {
     ///
     /// Valid arguments: `toggle`, `show`, `hide`.
     inspector: InspectorMode,
+
+    /// Dump the current RuntimeContext state (process_name, title, user_vars)
+    /// to the log. Useful for debugging conditional keybindings.
+    dump_runtime_context,
 
     /// Show the GTK inspector.
     ///
@@ -1391,6 +1616,7 @@ pub const Action = union(enum) {
             .resize_split,
             .equalize_splits,
             .inspector,
+            .dump_runtime_context,
             => .surface,
         };
     }
@@ -2024,6 +2250,17 @@ pub const Set = struct {
     /// The set of bindings.
     bindings: HashMap = .{},
 
+    /// Conditional bindings are stored separately from the main bindings
+    /// HashMap. A conditional binding only activates when its associated
+    /// Condition is met at runtime (e.g. the foreground process matches).
+    ///
+    /// Storage rationale: the main `bindings` HashMap uses Trigger as the
+    /// key, so two bindings with the same trigger overwrite each other.
+    /// Conditional bindings must coexist with unconditional bindings and
+    /// with each other (different conditions), so they live in a separate
+    /// list. Last-write-wins within the same trigger+condition pair.
+    conditional_bindings: std.ArrayListUnmanaged(ConditionalEntry) = .{},
+
     /// The reverse mapping of action to binding. Note that multiple
     /// bindings can map to the same action and this map will only have
     /// the most recently added binding for an action.
@@ -2056,6 +2293,17 @@ pub const Set = struct {
         key_ptr: *Trigger,
         value_ptr: *Value,
         set: *Set,
+    };
+
+    /// An entry in the conditional_bindings list. Conditional bindings are
+    /// stored separately from the unconditional `bindings` HashMap so that
+    /// a conditional and an unconditional binding can coexist for the same
+    /// trigger. See conditional_bindings field for full rationale.
+    pub const ConditionalEntry = struct {
+        trigger: Trigger,
+        action: Action,
+        flags: Flags,
+        condition: Condition,
     };
 
     /// The entry type for the forward mapping of trigger to action.
@@ -2253,6 +2501,7 @@ pub const Set = struct {
 
         self.bindings.deinit(alloc);
         self.reverse.deinit(alloc);
+        self.conditional_bindings.deinit(alloc);
         self.* = undefined;
     }
 
@@ -2431,17 +2680,34 @@ pub const Set = struct {
 
             .binding => |b| switch (b.action) {
                 .unbind => {
-                    set.remove(alloc, b.trigger);
+                    // If this is a conditional unbind, store it in conditional_bindings
+                    // so that getConditional can return null (pass-through) when the
+                    // condition matches. This prevents the unconditional binding from
+                    // firing when the condition is active.
+                    // For unconditional unbind, remove from the bindings HashMap.
+                    if (it.condition) |cond| {
+                        try set.putConditional(alloc, b.trigger, b.action, b.flags, cond);
+                    } else {
+                        set.remove(alloc, b.trigger);
+                    }
                     return error.SequenceUnbind;
                 },
 
                 else => {
-                    try set.putFlags(
-                        alloc,
-                        b.trigger,
-                        b.action,
-                        b.flags,
-                    );
+                    // If the parser carries a condition, route to conditional_bindings.
+                    // Conditional bindings are stored separately and don't support
+                    // chaining, so we return null to clear chain_parent.
+                    if (it.condition) |cond| {
+                        try set.putConditional(alloc, b.trigger, b.action, b.flags, cond);
+                        return null;
+                    } else {
+                        try set.putFlags(
+                            alloc,
+                            b.trigger,
+                            b.action,
+                            b.flags,
+                        );
+                    }
                     return set;
                 },
             },
@@ -2544,8 +2810,49 @@ pub const Set = struct {
         assert(self.chain_parent.?.value_ptr.* == .leaf);
     }
 
-    /// Append a chained action to the prior set action.
-    ///
+    /// Add a conditional binding to conditional_bindings.
+    /// Implements last-write-wins: if an entry with the same trigger+condition
+    /// already exists, it is replaced.
+    fn putConditional(
+        self: *Set,
+        alloc: Allocator,
+        t: Trigger,
+        action: Action,
+        flags: Flags,
+        cond: Condition,
+    ) Allocator.Error!void {
+        // Scan for existing entry with the same trigger+condition (last-write-wins).
+        for (self.conditional_bindings.items) |*entry| {
+            if (entry.trigger.bindingSetEqual(t) and entry.condition.eql(cond)) {
+                entry.action = action;
+                entry.flags = flags;
+                return;
+            }
+        }
+        // No existing entry — append a new one.
+        try self.conditional_bindings.append(alloc, .{
+            .trigger = t,
+            .action = action,
+            .flags = flags,
+            .condition = cond,
+        });
+    }
+
+    /// Remove a conditional binding that matches the given trigger and condition.
+    /// No-op if no matching entry exists.
+    fn removeConditional(self: *Set, t: Trigger, cond: Condition) void {
+        var i: usize = 0;
+        while (i < self.conditional_bindings.items.len) {
+            const entry = self.conditional_bindings.items[i];
+            if (entry.trigger.bindingSetEqual(t) and entry.condition.eql(cond)) {
+                _ = self.conditional_bindings.swapRemove(i);
+                return;
+            }
+            i += 1;
+        }
+    }
+
+    /// Append a chained action to the prior set action.    ///
     /// It is an error if there is no valid prior chain parent.
     pub fn appendChain(
         self: *Set,
@@ -2659,6 +2966,171 @@ pub const Set = struct {
         return null;
     }
 
+    /// The result returned by getConditional. Unlike the raw Entry type,
+    /// ConditionalResult normalizes the data and carries which condition
+    /// matched (or null if the fallback unconditional binding was used).
+    pub const ConditionalResult = struct {
+        action: Action,
+        flags: Flags,
+        /// Non-null when a conditional binding matched; null when the
+        /// unconditional binding was used as fallback.
+        condition: ?Condition,
+    };
+
+    /// Get a binding for a trigger, checking conditional bindings first.
+    ///
+    /// If a RuntimeContext is provided and a conditional binding matches the
+    /// trigger AND satisfies ctx.matchesCondition, it takes priority over any
+    /// unconditional binding for the same trigger (CONF-04: priority-based
+    /// lookup).
+    ///
+    /// Falls back to the unconditional binding in `bindings` if no conditional
+    /// match is found. Returns null if no binding exists at all.
+    ///
+    /// Note: getConditional performs a linear scan of conditional_bindings.
+    /// This is acceptable for Phase 1 since users have few conditional
+    /// bindings. Phase 2 can optimize if profiling shows need.
+    pub fn getConditional(self: *const Set, t: Trigger, ctx: ?*const RuntimeContext) ?ConditionalResult {
+        // First: check conditional_bindings for matching trigger + condition.
+        // Conditional bindings take priority over unconditional (CONF-04).
+        if (ctx) |c| {
+            for (self.conditional_bindings.items) |entry| {
+                if (entry.trigger.bindingSetEqual(t)) {
+                    const cond_matched = c.matchesCondition(entry.condition);
+                    switch (entry.condition) {
+                        .process => |v| log.info("conditional candidate trigger={f} action={s} cond=process:{s} matched={}", .{
+                            t,
+                            @tagName(entry.action),
+                            v,
+                            cond_matched,
+                        }),
+                        .title => |v| log.info("conditional candidate trigger={f} action={s} cond=title:{s} matched={}", .{
+                            t,
+                            @tagName(entry.action),
+                            v,
+                            cond_matched,
+                        }),
+                        .var_ => |v| log.info("conditional candidate trigger={f} action={s} cond=var:{s}:{s} matched={}", .{
+                            t,
+                            @tagName(entry.action),
+                            v.name,
+                            v.value,
+                            cond_matched,
+                        }),
+                    }
+                    if (cond_matched) {
+                        return .{
+                            .action = entry.action,
+                            .flags = entry.flags,
+                            .condition = entry.condition,
+                        };
+                    }
+                }
+            }
+        }
+
+        // Fallback: check the unconditional bindings HashMap.
+        const map_entry = self.bindings.getEntry(t) orelse return null;
+        log.info("conditional fallback trigger={f} value_tag={s}", .{
+            t,
+            @tagName(map_entry.value_ptr.*),
+        });
+        return switch (map_entry.value_ptr.*) {
+            .leaf => |leaf| .{
+                .action = leaf.action,
+                .flags = leaf.flags,
+                .condition = null,
+            },
+            // Leader and leaf_chained are not directly returnable as a
+            // single ConditionalResult; callers needing sequences must use
+            // the existing get()/getEvent() path.
+            .leader, .leaf_chained => null,
+        };
+    }
+
+    /// Like getEvent, but checks conditional bindings first (CONF-04 priority).
+    ///
+    /// Mirrors the trigger-variant fallback order of getEvent (physical →
+    /// unicode → unshifted codepoint → catch_all) but uses getConditional
+    /// at each step so that a matching conditional binding takes priority.
+    ///
+    /// The provided RuntimeContext is used to evaluate conditional bindings.
+    /// Pass null to skip conditional evaluation (falls through to unconditional
+    /// bindings only).
+    pub fn getEventConditional(
+        self: *const Set,
+        event: KeyEvent,
+        ctx: ?*const RuntimeContext,
+    ) ?ConditionalResult {
+        var trigger: Trigger = .{
+            .mods = event.mods.binding(),
+            .key = .{ .physical = event.key },
+        };
+        if (self.getConditional(trigger, ctx)) |v| {
+            // A conditional unbind means "pass the key through to the terminal
+            // application". We return unbind action with consumed=false so the
+            // caller can encode the key to the PTY while still claiming the
+            // binding exists (preventing OS-level shortcuts from firing).
+            if (v.action == .unbind and v.condition != null) return .{
+                .action = .unbind,
+                .flags = .{ .consumed = false },
+                .condition = v.condition,
+            };
+            return v;
+        }
+
+        if (event.utf8.len > 0) unicode: {
+            const view = std.unicode.Utf8View.init(event.utf8) catch break :unicode;
+            var it = view.iterator();
+            const cp = it.nextCodepoint() orelse break :unicode;
+            if (it.nextCodepoint() != null) break :unicode;
+            trigger.key = .{ .unicode = cp };
+            if (self.getConditional(trigger, ctx)) |v| {
+                if (v.action == .unbind and v.condition != null) return .{
+                    .action = .unbind,
+                    .flags = .{ .consumed = false },
+                    .condition = v.condition,
+                };
+                return v;
+            }
+        }
+
+        if (event.unshifted_codepoint > 0) {
+            trigger.key = .{ .unicode = event.unshifted_codepoint };
+            if (self.getConditional(trigger, ctx)) |v| {
+                if (v.action == .unbind and v.condition != null) return .{
+                    .action = .unbind,
+                    .flags = .{ .consumed = false },
+                    .condition = v.condition,
+                };
+                return v;
+            }
+        }
+
+        trigger.key = .catch_all;
+        if (self.getConditional(trigger, ctx)) |v| {
+            if (v.action == .unbind and v.condition != null) return .{
+                .action = .unbind,
+                .flags = .{ .consumed = false },
+                .condition = v.condition,
+            };
+            return v;
+        }
+        if (!trigger.mods.empty()) {
+            trigger.mods = .{};
+            if (self.getConditional(trigger, ctx)) |v| {
+                if (v.action == .unbind and v.condition != null) return .{
+                    .action = .unbind,
+                    .flags = .{ .consumed = false },
+                    .condition = v.condition,
+                };
+                return v;
+            }
+        }
+
+        return null;
+    }
+
     /// Remove a binding for a given trigger.
     pub fn remove(self: *Set, alloc: Allocator, t: Trigger) void {
         self.removeExact(alloc, t);
@@ -2749,6 +3221,7 @@ pub const Set = struct {
         var result: Set = .{
             .bindings = try self.bindings.clone(alloc),
             .reverse = try self.reverse.clone(alloc),
+            .conditional_bindings = try self.conditional_bindings.clone(alloc),
         };
 
         // If we have any leaders we need to clone them.
@@ -2776,6 +3249,15 @@ pub const Set = struct {
         // they may contain allocated values.
         for (result.reverse.keys()) |*action| {
             action.* = try action.clone(alloc);
+        }
+
+        // Clone actions and conditions in conditional_bindings. Actions may contain
+        // allocated strings (e.g. text actions), and conditions contain string
+        // slices that point into the original config's memory. Both must be
+        // deep-cloned to avoid dangling pointers after config reload.
+        for (result.conditional_bindings.items) |*entry| {
+            entry.action = try entry.action.clone(alloc);
+            entry.condition = try entry.condition.clone(alloc);
         }
 
         return result;
@@ -4816,6 +5298,7 @@ test "set: formatEntries leaf_chained multiple chains" {
 }
 
 test "set: formatEntries leaf_chained with text action" {
+
     const testing = std.testing;
     const alloc = testing.allocator;
     const formatterpkg = @import("../config/formatter.zig");
@@ -4844,4 +5327,398 @@ test "set: formatEntries leaf_chained with text action" {
         \\
     ;
     try testing.expectEqualStrings(expected, output.written());
+}
+
+test "parse: conditional bindings" {
+    const testing = std.testing;
+
+    // process condition
+    {
+        const b = try parseSingle("[process=vim]ctrl+w=close_surface");
+        try testing.expectEqualStrings("vim", b.condition.?.process);
+    }
+
+    // title condition with colon in value
+    {
+        const b = try parseSingle("[title=vim: main.zig]ctrl+s=close_surface");
+        try testing.expectEqualStrings("vim: main.zig", b.condition.?.title);
+    }
+
+    // var condition
+    {
+        const b = try parseSingle("[var=in_vim:1]ctrl+w=close_surface");
+        try testing.expectEqualStrings("in_vim", b.condition.?.var_.name);
+        try testing.expectEqualStrings("1", b.condition.?.var_.value);
+    }
+
+    // condition with global flag
+    {
+        const b = try parseSingle("[process=vim]global:ctrl+w=close_surface");
+        try testing.expectEqualStrings("vim", b.condition.?.process);
+        try testing.expect(b.flags.global);
+    }
+
+    // condition with all flag
+    {
+        const b = try parseSingle("[process=vim]all:ctrl+w=close_surface");
+        try testing.expectEqualStrings("vim", b.condition.?.process);
+        try testing.expect(b.flags.all);
+    }
+
+    // no condition (existing behavior unchanged)
+    {
+        const b = try parseSingle("ctrl+w=close_surface");
+        try testing.expect(b.condition == null);
+    }
+}
+
+test "parse: conditional errors" {
+    const testing = std.testing;
+
+    // empty value
+    try testing.expectError(error.InvalidFormat, parseSingle("[process=]ctrl+w=close_surface"));
+
+    // empty type
+    try testing.expectError(error.InvalidFormat, parseSingle("[=vim]ctrl+w=close_surface"));
+
+    // empty brackets
+    try testing.expectError(error.InvalidFormat, parseSingle("[]ctrl+w=close_surface"));
+
+    // unknown condition type
+    try testing.expectError(error.InvalidFormat, parseSingle("[unknown=foo]ctrl+w=close_surface"));
+
+    // unclosed bracket
+    try testing.expectError(error.InvalidFormat, parseSingle("[process=vim"));
+
+    // multiple conditions (v1: not supported)
+    try testing.expectError(error.InvalidFormat, parseSingle("[process=vim][title=foo]ctrl+w=close_surface"));
+}
+
+test "set: parseAndPut conditional bindings" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // Test: conditional binding stores with correct condition
+    {
+        var set: Set = .{};
+        defer set.deinit(alloc);
+        try set.parseAndPut(alloc, "[process=vim]ctrl+w=close_surface");
+        try testing.expectEqual(1, set.conditional_bindings.items.len);
+        try testing.expectEqualStrings("vim", set.conditional_bindings.items[0].condition.process);
+        try testing.expectEqual(Action.close_surface, set.conditional_bindings.items[0].action);
+    }
+
+    // Test: last-write-wins for same trigger+condition
+    {
+        var set: Set = .{};
+        defer set.deinit(alloc);
+        try set.parseAndPut(alloc, "[process=vim]ctrl+w=close_surface");
+        try set.parseAndPut(alloc, "[process=vim]ctrl+w=ignore");
+        // Second overwrites first — still only one entry
+        try testing.expectEqual(1, set.conditional_bindings.items.len);
+        try testing.expectEqual(Action.ignore, set.conditional_bindings.items[0].action);
+    }
+
+    // Test: conditional and unconditional coexist for same trigger
+    {
+        var set: Set = .{};
+        defer set.deinit(alloc);
+        try set.parseAndPut(alloc, "ctrl+w=close_surface");
+        try set.parseAndPut(alloc, "[process=vim]ctrl+w=ignore");
+        // Both exist: one unconditional in bindings, one conditional in conditional_bindings
+        try testing.expectEqual(1, set.conditional_bindings.items.len);
+        try testing.expect(set.bindings.count() == 1);
+    }
+
+    // Test: different conditions for same trigger coexist
+    {
+        var set: Set = .{};
+        defer set.deinit(alloc);
+        try set.parseAndPut(alloc, "[process=vim]ctrl+w=close_surface");
+        try set.parseAndPut(alloc, "[process=nvim]ctrl+w=ignore");
+        // Two conditional entries, one for each process
+        try testing.expectEqual(2, set.conditional_bindings.items.len);
+    }
+
+    // Test: unconditional unbind still removes unconditional binding
+    {
+        var set: Set = .{};
+        defer set.deinit(alloc);
+        try set.parseAndPut(alloc, "ctrl+w=close_surface");
+        try set.parseAndPut(alloc, "ctrl+w=unbind");
+        try testing.expectEqual(0, set.bindings.count());
+    }
+
+    // Test: conditional unbind replaces matching conditional entry with unbind action
+    {
+        var set: Set = .{};
+        defer set.deinit(alloc);
+        try set.parseAndPut(alloc, "[process=vim]ctrl+w=close_surface");
+        try set.parseAndPut(alloc, "[process=vim]ctrl+w=unbind");
+        // The entry is replaced with unbind action (last-write-wins via putConditional)
+        try testing.expectEqual(1, set.conditional_bindings.items.len);
+        try testing.expectEqual(Action.unbind, set.conditional_bindings.items[0].action);
+    }
+}
+
+test "RuntimeContext: matchesCondition" {
+    const testing = std.testing;
+
+    // process_name match
+    {
+        const ctx: RuntimeContext = .{ .process_name = "vim" };
+        try testing.expect(ctx.matchesCondition(.{ .process = "vim" }));
+        try testing.expect(!ctx.matchesCondition(.{ .process = "nvim" }));
+    }
+
+    // null process_name → no process condition matches
+    {
+        const ctx: RuntimeContext = .{ .process_name = null };
+        try testing.expect(!ctx.matchesCondition(.{ .process = "vim" }));
+    }
+
+    // title match
+    {
+        const ctx: RuntimeContext = .{ .title = "foo" };
+        try testing.expect(ctx.matchesCondition(.{ .title = "foo" }));
+        try testing.expect(!ctx.matchesCondition(.{ .title = "bar" }));
+    }
+
+    // null title → no title condition matches
+    {
+        const ctx: RuntimeContext = .{ .title = null };
+        try testing.expect(!ctx.matchesCondition(.{ .title = "foo" }));
+    }
+
+    // empty RuntimeContext (all null) → no condition matches
+    {
+        const ctx: RuntimeContext = .{};
+        try testing.expect(!ctx.matchesCondition(.{ .process = "vim" }));
+        try testing.expect(!ctx.matchesCondition(.{ .title = "foo" }));
+        try testing.expect(!ctx.matchesCondition(.{ .var_ = .{ .name = "k", .value = "v" } }));
+    }
+
+    // var_ match
+    {
+        var vars: std.StringHashMapUnmanaged([]const u8) = .{};
+        defer vars.deinit(testing.allocator);
+        try vars.put(testing.allocator, "MY_VAR", "hello");
+        const ctx: RuntimeContext = .{ .user_vars = vars };
+        try testing.expect(ctx.matchesCondition(.{ .var_ = .{ .name = "MY_VAR", .value = "hello" } }));
+        try testing.expect(!ctx.matchesCondition(.{ .var_ = .{ .name = "MY_VAR", .value = "world" } }));
+        try testing.expect(!ctx.matchesCondition(.{ .var_ = .{ .name = "OTHER", .value = "hello" } }));
+    }
+
+    // null user_vars → no var_ condition matches
+    {
+        const ctx: RuntimeContext = .{ .user_vars = null };
+        try testing.expect(!ctx.matchesCondition(.{ .var_ = .{ .name = "k", .value = "v" } }));
+    }
+}
+
+test "RuntimeContext: matchesCondition var_ glob patterns" {
+    const testing = std.testing;
+
+    var vars: std.StringHashMapUnmanaged([]const u8) = .{};
+    defer vars.deinit(testing.allocator);
+    try vars.put(testing.allocator, "mode", "insert");
+    try vars.put(testing.allocator, "env", "production-us-east-1");
+    const ctx: RuntimeContext = .{ .user_vars = vars };
+
+    // Exact match (no wildcards) — fast path
+    try testing.expect(ctx.matchesCondition(.{ .var_ = .{ .name = "mode", .value = "insert" } }));
+    try testing.expect(!ctx.matchesCondition(.{ .var_ = .{ .name = "mode", .value = "normal" } }));
+
+    // Glob: * matches zero or more characters
+    try testing.expect(ctx.matchesCondition(.{ .var_ = .{ .name = "mode", .value = "insert*" } }));
+    try testing.expect(ctx.matchesCondition(.{ .var_ = .{ .name = "mode", .value = "ins*" } }));
+    try testing.expect(ctx.matchesCondition(.{ .var_ = .{ .name = "mode", .value = "*" } }));
+    try testing.expect(!ctx.matchesCondition(.{ .var_ = .{ .name = "mode", .value = "normal*" } }));
+
+    // Glob: ? matches exactly one character
+    try testing.expect(ctx.matchesCondition(.{ .var_ = .{ .name = "mode", .value = "inser?" } }));
+    try testing.expect(!ctx.matchesCondition(.{ .var_ = .{ .name = "mode", .value = "insert?" } }));
+
+    // Glob: complex pattern with * in the middle
+    try testing.expect(ctx.matchesCondition(.{ .var_ = .{ .name = "env", .value = "production-*" } }));
+    try testing.expect(ctx.matchesCondition(.{ .var_ = .{ .name = "env", .value = "*-us-*" } }));
+    try testing.expect(!ctx.matchesCondition(.{ .var_ = .{ .name = "env", .value = "staging-*" } }));
+
+    // Missing variable returns false even with glob
+    try testing.expect(!ctx.matchesCondition(.{ .var_ = .{ .name = "missing", .value = "*" } }));
+}
+
+test "RuntimeContext: matchesCondition title/process glob patterns" {
+    const testing = std.testing;
+
+    // TITL-01: Title exact match
+    {
+        const ctx = RuntimeContext{ .title = "vim: main.zig" };
+        try testing.expect(ctx.matchesCondition(.{ .title = "vim: main.zig" }));
+        try testing.expect(!ctx.matchesCondition(.{ .title = "emacs" }));
+    }
+
+    // TITL-02: Title glob with *
+    {
+        const ctx = RuntimeContext{ .title = "vim: main.zig" };
+        try testing.expect(ctx.matchesCondition(.{ .title = "vim:*" }));
+        try testing.expect(ctx.matchesCondition(.{ .title = "*main*" }));
+        try testing.expect(!ctx.matchesCondition(.{ .title = "emacs*" }));
+    }
+    // Title glob with ?
+    {
+        const ctx = RuntimeContext{ .title = "vim: main.zig" };
+        try testing.expect(ctx.matchesCondition(.{ .title = "vim: main.zi?" }));
+    }
+    // Title null (no title set)
+    {
+        const ctx = RuntimeContext{};
+        try testing.expect(!ctx.matchesCondition(.{ .title = "anything" }));
+    }
+
+    // PROC-02: Process glob with *
+    {
+        const ctx = RuntimeContext{ .process_name = "nvim" };
+        try testing.expect(ctx.matchesCondition(.{ .process = "nvim*" }));
+    }
+    {
+        const ctx = RuntimeContext{ .process_name = "nvim-qt" };
+        try testing.expect(ctx.matchesCondition(.{ .process = "nvim*" }));
+    }
+    {
+        const ctx = RuntimeContext{ .process_name = "vim" };
+        try testing.expect(!ctx.matchesCondition(.{ .process = "nvim*" }));
+    }
+    // Process exact (fast path)
+    {
+        const ctx = RuntimeContext{ .process_name = "nvim" };
+        try testing.expect(ctx.matchesCondition(.{ .process = "nvim" }));
+        try testing.expect(!ctx.matchesCondition(.{ .process = "nvim-qt" }));
+    }
+    // Process glob with ?
+    {
+        const ctx = RuntimeContext{ .process_name = "nvim" };
+        try testing.expect(ctx.matchesCondition(.{ .process = "nvi?" }));
+    }
+}
+
+test "set: getConditional priority" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const trigger: Trigger = .{
+        .mods = .{ .ctrl = true },
+        .key = .{ .unicode = 'w' },
+    };
+    const vim_ctx: RuntimeContext = .{ .process_name = "vim" };
+    const nvim_ctx: RuntimeContext = .{ .process_name = "nvim" };
+
+    // Test: conditional binding takes priority over unconditional for same trigger
+    {
+        var set: Set = .{};
+        defer set.deinit(alloc);
+        try set.parseAndPut(alloc, "ctrl+w=close_surface");
+        try set.parseAndPut(alloc, "[process=vim]ctrl+w=ignore");
+
+        const result = set.getConditional(trigger, &vim_ctx);
+        try testing.expect(result != null);
+        try testing.expectEqual(Action.ignore, result.?.action);
+        // Condition should be non-null (matched the conditional binding)
+        try testing.expect(result.?.condition != null);
+    }
+
+    // Test: falls back to unconditional when no conditional match
+    {
+        var set: Set = .{};
+        defer set.deinit(alloc);
+        try set.parseAndPut(alloc, "ctrl+w=close_surface");
+
+        const result = set.getConditional(trigger, &vim_ctx);
+        try testing.expect(result != null);
+        try testing.expectEqual(Action.close_surface, result.?.action);
+        try testing.expect(result.?.condition == null);
+    }
+
+    // Test: only conditional, null context passed → returns null (no unconditional fallback)
+    {
+        var set: Set = .{};
+        defer set.deinit(alloc);
+        try set.parseAndPut(alloc, "[process=vim]ctrl+w=ignore");
+
+        const result = set.getConditional(trigger, null);
+        try testing.expect(result == null);
+    }
+
+    // Test: multiple conditional bindings — returns matching one
+    {
+        var set: Set = .{};
+        defer set.deinit(alloc);
+        try set.parseAndPut(alloc, "[process=vim]ctrl+w=ignore");
+        try set.parseAndPut(alloc, "[process=nvim]ctrl+w=close_surface");
+
+        const vim_result = set.getConditional(trigger, &vim_ctx);
+        try testing.expect(vim_result != null);
+        try testing.expectEqual(Action.ignore, vim_result.?.action);
+
+        const nvim_result = set.getConditional(trigger, &nvim_ctx);
+        try testing.expect(nvim_result != null);
+        try testing.expectEqual(Action.close_surface, nvim_result.?.action);
+    }
+
+    // Test: no conditional match, no unconditional → returns null
+    {
+        var set: Set = .{};
+        defer set.deinit(alloc);
+        try set.parseAndPut(alloc, "[process=vim]ctrl+w=ignore");
+
+        const result = set.getConditional(trigger, &nvim_ctx);
+        try testing.expect(result == null);
+    }
+
+    // Test: existing Set.get() unchanged — returns unconditional only
+    {
+        var set: Set = .{};
+        defer set.deinit(alloc);
+        try set.parseAndPut(alloc, "ctrl+w=close_surface");
+        try set.parseAndPut(alloc, "[process=vim]ctrl+w=ignore");
+
+        const entry = set.get(trigger);
+        try testing.expect(entry != null);
+        // get() returns the unconditional binding, not the conditional one
+        try testing.expectEqual(Action.close_surface, entry.?.value_ptr.leaf.action);
+    }
+
+    // Test: getConditional with context that has wrong process → falls back to unconditional
+    {
+        var set: Set = .{};
+        defer set.deinit(alloc);
+        try set.parseAndPut(alloc, "ctrl+w=close_surface");
+        try set.parseAndPut(alloc, "[process=vim]ctrl+w=ignore");
+
+        const result = set.getConditional(trigger, &nvim_ctx);
+        try testing.expect(result != null);
+        try testing.expectEqual(Action.close_surface, result.?.action);
+        // Unconditional fallback — condition is null
+        try testing.expect(result.?.condition == null);
+    }
+
+    // Test: getEventConditional with RuntimeContext returns conditional match
+    {
+        var set: Set = .{};
+        defer set.deinit(alloc);
+        try set.parseAndPut(alloc, "ctrl+w=close_surface");
+        try set.parseAndPut(alloc, "[process=vim]ctrl+w=ignore");
+
+        // Build a fake KeyEvent for ctrl+w (unicode path)
+        const event: @import("key.zig").KeyEvent = .{
+            .key = .key_w,
+            .mods = .{ .ctrl = true },
+            .action = .press,
+            .utf8 = "w",
+            .unshifted_codepoint = 'w',
+        };
+        const result = set.getEventConditional(event, &vim_ctx);
+        try testing.expect(result != null);
+        try testing.expectEqual(Action.ignore, result.?.action);
+    }
 }

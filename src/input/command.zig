@@ -549,6 +549,12 @@ fn actionCommands(action: Action.Key) []const Command {
             .description = "Toggle the inspector.",
         }},
 
+        .dump_runtime_context => comptime &.{.{
+            .action = .dump_runtime_context,
+            .title = "Dump Runtime Context",
+            .description = "Log the current RuntimeContext state (process_name, title, user_vars) for debugging conditional keybindings.",
+        }},
+
         .show_gtk_inspector => comptime &.{.{
             .action = .show_gtk_inspector,
             .title = "Show the GTK Inspector",
