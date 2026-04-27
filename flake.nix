@@ -32,7 +32,7 @@
     };
 
     zon2nix = {
-      url = "github:jcollie/zon2nix?ref=0.16";
+      url = "github:jcollie/zon2nix?ref=main";
       inputs = {
         nixpkgs.follows = "nixpkgs";
       };
@@ -75,7 +75,10 @@
   in {
     devShells = forAllPlatforms (pkgs: {
       default = pkgs.callPackage ./nix/devShell.nix {
-        zig = zig.packages.${pkgs.stdenv.hostPlatform.system}."0.15.2";
+        zig =
+          if pkgs.stdenv.hostPlatform.isDarwin
+          then zig.packages.${pkgs.stdenv.hostPlatform.system}.brew."0.15.2"
+          else zig.packages.${pkgs.stdenv.hostPlatform.system}."0.15.2";
         wraptest = pkgs.callPackage ./nix/pkgs/wraptest.nix {};
         zon2nix = zon2nix;
 
