@@ -364,7 +364,6 @@ typedef enum {
 } ghostty_input_trigger_tag_e;
 
 typedef union {
-  ghostty_input_key_e translated;
   ghostty_input_key_e physical;
   uint32_t unicode;
   // catch_all has no payload
@@ -935,6 +934,7 @@ typedef enum {
   GHOSTTY_ACTION_CONFIG_CHANGE,
   GHOSTTY_ACTION_CLOSE_WINDOW,
   GHOSTTY_ACTION_RING_BELL,
+  GHOSTTY_ACTION_SELECTION_CHANGED,
   GHOSTTY_ACTION_UNDO,
   GHOSTTY_ACTION_REDO,
   GHOSTTY_ACTION_CHECK_FOR_UPDATES,
@@ -1055,6 +1055,7 @@ typedef union {
 // apprt.ipc.Action.Key
 typedef enum {
   GHOSTTY_IPC_ACTION_NEW_WINDOW,
+  GHOSTTY_IPC_ACTION_TOGGLE_QUICK_TERMINAL,
 } ghostty_ipc_action_tag_e;
 
 //-------------------------------------------------------------------

@@ -49,6 +49,7 @@ const string = @import("string.zig");
 const terminal = struct {
     const CursorStyle = @import("../terminal/cursor.zig").Style;
     const color = @import("../terminal/color.zig");
+    const selection_codepoints = @import("../terminal/selection_codepoints.zig");
     const style = @import("../terminal/style.zig");
     const x11_color = @import("../terminal/x11_color.zig");
 };
@@ -751,12 +752,12 @@ foreground: Color = .{ .r = 0xFF, .g = 0xFF, .b = 0xFF },
 /// The null character (U+0000) is always treated as a boundary and does not
 /// need to be included in this configuration.
 ///
-/// Default: `` \t'"│`|:;,()[]{}<>$ ``
+/// Default: ``\t '"│`|:;,()[]{}<>$``
 ///
 /// To add or remove specific characters, you can set this to a custom value.
 /// For example, to treat semicolons as part of words:
 ///
-///     selection-word-chars = " \t'\"│`|:,()[]{}<>$"
+///     selection-word-chars = "\t '\"│`|:,()[]{}<>$"
 ///
 /// Available since: 1.3.0
 @"selection-word-chars": SelectionWordChars = .{},
@@ -2464,11 +2465,12 @@ keybind: Keybinds = .{},
 /// The value `clipboard` will always copy text to the selection clipboard
 /// as well as the system clipboard.
 ///
-/// Middle-click paste is always enabled even if this is `false`. The
-/// clipboard it pastes from follows this setting: with `true` (or `false`)
-/// it reads from the selection clipboard (falling back to the system
-/// clipboard on platforms without a selection clipboard); with `clipboard`
-/// it reads from the system clipboard.
+/// Middle-click primary paste (see `middle-click-action`) is enabled by
+/// default even if this is `false`. The clipboard it pastes from follows
+/// this setting: with `true` (or `false`) it reads from the selection
+/// clipboard (falling back to the system clipboard on platforms without a
+/// selection clipboard); with `clipboard` it reads from the system
+/// clipboard.
 ///
 /// The default value is true on Linux and macOS.
 @"copy-on-select": CopyOnSelect = switch (builtin.os.tag) {
@@ -2489,6 +2491,16 @@ keybind: Keybinds = .{},
 ///
 /// The default value is `context-menu`.
 @"right-click-action": RightClickAction = .@"context-menu",
+
+/// The action to take when the user middle-clicks on the terminal surface.
+///
+/// Valid values:
+///   * `primary-paste` - Paste from the selection (or system) clipboard per
+///      `copy-on-select`.
+///   * `ignore` - Do nothing, ignore the middle click.
+///
+/// The default value is `primary-paste`.
+@"middle-click-action": MiddleClickAction = .@"primary-paste",
 
 /// The time in milliseconds between clicks to consider a click a repeat
 /// (double, triple, etc.) or an entirely new single click. A value of zero will
@@ -2929,9 +2941,16 @@ keybind: Keybinds = .{},
 /// command-palette-entry = title:"Ghostty",description:"Add a little Ghostty to your terminal.",action:"text:\xf0\x9f\x91\xbb"
 /// ```
 ///
+/// There are some additional special values that can be specified for
+/// command-palette-entry:
+///
+///   * `command-palette-entry=clear` will clear all command entries. Warning: this
+///     removes ALL entries up to this point, including the default
+///     entries. Available since: 1.4.0
+///
 /// By default, the command palette is preloaded with most actions that might
 /// be useful in an interactive setting yet do not have easily accessible or
-/// memorizable shortcuts. The default entries can be cleared by setting this
+/// memorizable shortcuts. The default entries can be restored by setting this
 /// setting to an empty value:
 ///
 /// ```ini
@@ -6191,32 +6210,8 @@ pub const RepeatableString = struct {
 pub const SelectionWordChars = struct {
     const Self = @This();
 
-    /// Default boundary characters: ` \t'"│`|:;,()[]{}<>$`
-    const default_codepoints = [_]u21{
-        0, // null
-        ' ', // space
-        '\t', // tab
-        '\'', // single quote
-        '"', // double quote
-        '│', // U+2502 box drawing
-        '`', // backtick
-        '|', // pipe
-        ':', // colon
-        ';', // semicolon
-        ',', // comma
-        '(', // left paren
-        ')', // right paren
-        '[', // left bracket
-        ']', // right bracket
-        '{', // left brace
-        '}', // right brace
-        '<', // less than
-        '>', // greater than
-        '$', // dollar
-    };
-
     /// The parsed codepoints. Always includes null (U+0000) at index 0.
-    codepoints: []const u21 = &default_codepoints,
+    codepoints: []const u21 = &terminal.selection_codepoints.default_word_boundaries,
 
     pub fn parseCLI(self: *Self, alloc: Allocator, input: ?[]const u8) !void {
         const value = input orelse return error.ValueRequired;
@@ -8730,6 +8725,15 @@ pub const RightClickAction = enum {
     @"context-menu",
 };
 
+/// Options for middle-click actions.
+pub const MiddleClickAction = enum {
+    /// Paste from the selection/standard clipboard per `copy-on-select`.
+    @"primary-paste",
+
+    /// No action is taken on middle click.
+    ignore,
+};
+
 /// Shell integration values
 pub const ShellIntegration = enum {
     none,
@@ -8793,6 +8797,13 @@ pub const RepeatableCommand = struct {
         // Unset or empty input clears the list
         const input = input_ orelse "";
         if (input.len == 0) {
+            log.info("config has 'command-palette-entry =', using default entries", .{});
+            try self.init(alloc);
+            return;
+        }
+
+        if (std.mem.eql(u8, input, "clear")) {
+            log.info("config has 'command-palette-entry = clear', all command entries cleared", .{});
             self.value.clearRetainingCapacity();
             self.value_c.clearRetainingCapacity();
             return;
@@ -8904,8 +8915,11 @@ pub const RepeatableCommand = struct {
         try testing.expectEqualStrings("Baz", list.value.items[3].title);
         try testing.expectEqualStrings("Raspberry Pie", list.value.items[3].description);
 
-        try list.parseCLI(alloc, "");
+        try list.parseCLI(alloc, "clear");
         try testing.expectEqual(@as(usize, 0), list.value.items.len);
+
+        try list.parseCLI(alloc, "");
+        try testing.expectEqual(inputpkg.command.defaults.len, list.value.items.len);
     }
 
     test "RepeatableCommand formatConfig empty" {
@@ -9020,7 +9034,7 @@ pub const RepeatableCommand = struct {
         try list.parseCLI(alloc, "title:Foo,action:ignore");
         try testing.expectEqual(@as(usize, 1), list.cval().len);
 
-        try list.parseCLI(alloc, "");
+        try list.parseCLI(alloc, "clear");
         try testing.expectEqual(@as(usize, 0), list.cval().len);
     }
 };
