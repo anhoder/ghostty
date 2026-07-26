@@ -51,6 +51,7 @@ aprilnea
 arvin7liu
 athaapa
 atomk
+aurelleb
 aymanbagabas
 b0uks
 b1nar10
@@ -260,6 +261,7 @@ ruoyouz
 sahilkmishra
 samasaur1
 sandydoo
+sanjj1
 -schickling-assistant NHITL
 secrus
 seruman
