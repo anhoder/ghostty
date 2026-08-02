@@ -4,6 +4,7 @@ const testing = std.testing;
 const apc = @import("apc.zig");
 const clipboard = @import("clipboard.zig");
 const csi = @import("csi.zig");
+const dcs = @import("dcs.zig");
 const device_attributes = @import("device_attributes.zig");
 const device_status = @import("device_status.zig");
 const stream = @import("stream.zig");
@@ -60,6 +61,9 @@ pub const Handler = struct {
     /// the kitty graphics protocol.
     apc_handler: apc.Handler = .{},
 
+    /// The DCS command handler maintains state for DCS queries.
+    dcs_handler: dcs.Handler = .{},
+
     pub const Effects = struct {
         /// Called when the terminal needs to write data back to the pty,
         /// e.g. in response to a DECRQM query. The data is only valid
@@ -69,6 +73,11 @@ pub const Handler = struct {
 
         /// Called when the bell is rung (BEL).
         bell: ?*const fn (*Handler) void,
+
+        /// Called when the running program requests a desktop notification
+        /// via OSC 9 or OSC 777. The title and body are borrowed and only
+        /// valid for the duration of the callback.
+        desktop_notification: ?*const fn (*Handler, Action.ShowDesktopNotification) void,
 
         /// Called in response to a color scheme DSR query (CSI ? 996 n).
         /// Returns the current color scheme. Return null to silently
@@ -100,6 +109,9 @@ pub const Handler = struct {
         /// handler.terminal.getPwd().
         pwd_changed: ?*const fn (*Handler) void,
 
+        /// Called when the running program reports progress via OSC 9;4.
+        progress_report: ?*const fn (*Handler, osc.Command.ProgressReport) void,
+
         /// Called when the running program writes to a clipboard. The write
         /// has a normalized destination and one or more decoded MIME
         /// representations. All request, MIME, and data memory is borrowed
@@ -127,8 +139,10 @@ pub const Handler = struct {
             .bell = null,
             .clipboard_write = null,
             .color_scheme = null,
+            .desktop_notification = null,
             .device_attributes = null,
             .enquiry = null,
+            .progress_report = null,
             .size = null,
             .title_changed = null,
             .pwd_changed = null,
@@ -145,6 +159,7 @@ pub const Handler = struct {
 
     pub fn deinit(self: *Handler) void {
         self.apc_handler.deinit();
+        self.dcs_handler.deinit();
     }
 
     /// Resize the terminal and apply any side effects (if supported)
@@ -309,6 +324,7 @@ pub const Handler = struct {
 
             // Effect-based handlers
             .bell => self.bell(),
+            .show_desktop_notification => self.desktopNotification(value),
             .device_attributes => self.reportDeviceAttributes(value),
             .device_status => self.deviceStatus(value.request),
             .enquiry => self.reportEnquiry(),
@@ -318,6 +334,7 @@ pub const Handler = struct {
             .size_report => self.reportSize(value),
             .window_title => try self.windowTitle(value.title),
             .report_pwd => try self.reportPwd(value.url),
+            .progress_report => self.progressReport(value),
             .xtversion => self.reportXtversion(),
             .clipboard_contents => self.clipboardContents(
                 value.kind,
@@ -327,16 +344,11 @@ pub const Handler = struct {
                 log.warn("error handling clipboard write err={}", .{err});
             },
 
-            // No supported DCS commands have any terminal-modifying effects,
-            // but they may in the future. For now we just ignore it.
-            .dcs_hook,
-            .dcs_put,
-            .dcs_unhook,
-            => {},
+            .dcs_hook => try self.dcsHook(value),
+            .dcs_put => try self.dcsPut(value),
+            .dcs_unhook => try self.dcsUnhook(),
 
             // Have no terminal-modifying effect
-            .show_desktop_notification,
-            .progress_report,
             .title_push,
             .title_pop,
             .set_user_var,
@@ -349,9 +361,63 @@ pub const Handler = struct {
         func(self, data);
     }
 
+    fn dcsHook(self: *Handler, value: Action.Value(.dcs_hook)) !void {
+        var cmd = self.dcs_handler.hook(
+            self.terminal.gpa(),
+            value,
+        ) orelse return;
+        defer cmd.deinit();
+        try self.dcsCommand(&cmd);
+    }
+
+    fn dcsPut(self: *Handler, value: u8) !void {
+        var cmd = self.dcs_handler.put(value) orelse return;
+        defer cmd.deinit();
+        try self.dcsCommand(&cmd);
+    }
+
+    fn dcsUnhook(self: *Handler) !void {
+        var cmd = self.dcs_handler.unhook() orelse return;
+        defer cmd.deinit();
+        try self.dcsCommand(&cmd);
+    }
+
+    fn dcsCommand(self: *Handler, cmd: *dcs.Command) !void {
+        switch (cmd.*) {
+            .decrqss => |request| {
+                var response: [
+                    dcs.Command.DECRQSS.max_response_bytes + 1
+                ]u8 = undefined;
+                const encoded = try request.encode(
+                    self.terminal,
+                    response[0 .. response.len - 1],
+                );
+                response[encoded.len] = 0;
+                self.writePty(response[0..encoded.len :0]);
+            },
+
+            .tmux,
+            .xtgettcap,
+            => {},
+        }
+    }
+
     fn bell(self: *Handler) void {
         const func = self.effects.bell orelse return;
         func(self);
+    }
+
+    fn desktopNotification(
+        self: *Handler,
+        notification: Action.ShowDesktopNotification,
+    ) void {
+        const func = self.effects.desktop_notification orelse return;
+        func(self, notification);
+    }
+
+    fn progressReport(self: *Handler, report: osc.Command.ProgressReport) void {
+        const func = self.effects.progress_report orelse return;
+        func(self, report);
     }
 
     fn clipboardContents(self: *Handler, kind: u8, data: []const u8) !void {
@@ -442,7 +508,22 @@ pub const Handler = struct {
                 buf[writer.end] = 0;
                 self.writePty(buf[0..writer.end :0]);
             },
+
+            .visibility => self.sendVisibilityReport(),
         }
+    }
+
+    fn sendVisibilityReport(self: *Handler) void {
+        const write_pty = self.effects.write_pty orelse return;
+
+        var buf: [device_status.max_visibility_report_encode_size + 1]u8 = undefined;
+        var writer: std.Io.Writer = .fixed(buf[0..device_status.max_visibility_report_encode_size]);
+        device_status.encodeVisibilityReport(
+            &writer,
+            if (self.terminal.flags.visible) .potentially_visible else .not_visible,
+        ) catch return;
+        buf[writer.end] = 0;
+        write_pty(self, buf[0..writer.end :0]);
     }
 
     fn reportEnquiry(self: *Handler) void {
@@ -638,6 +719,8 @@ pub const Handler = struct {
             .in_band_size_reports,
             .focus_event,
             => {},
+
+            .report_visibility => if (enabled) self.sendVisibilityReport(),
 
             .mouse_event_x10 => {
                 if (enabled) {
@@ -911,7 +994,7 @@ test "resize clears synchronized output on unchanged cell dimensions" {
     var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 80, .rows = 24 });
     defer t.deinit(testing.allocator);
 
-    var s: Stream = .initAlloc(testing.allocator, .init(&t));
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = .init(&t) });
     defer s.deinit();
 
     t.modes.set(.synchronized_output, true);
@@ -943,7 +1026,7 @@ test "resize reports mode 2048 geometry" {
 
     var handler: Handler = .init(&t);
     handler.effects.write_pty = &S.writePty;
-    var s: Stream = .initAlloc(testing.allocator, handler);
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
     defer s.deinit();
 
     t.modes.set(.in_band_size_reports, true);
@@ -973,7 +1056,7 @@ test "resize suppresses mode 2048 reports" {
     defer t.deinit(testing.allocator);
     var handler: Handler = .init(&t);
     handler.effects.write_pty = &S.writePty;
-    var s: Stream = .initAlloc(testing.allocator, handler);
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
     defer s.deinit();
 
     // Disabled mode suppresses a report even with pixels and a callback.
@@ -997,10 +1080,10 @@ test "resize suppresses mode 2048 reports" {
     );
     defer readonly_terminal.deinit(testing.allocator);
     readonly_terminal.modes.set(.in_band_size_reports, true);
-    var readonly_stream: Stream = .initAlloc(
-        testing.allocator,
-        .init(&readonly_terminal),
-    );
+    var readonly_stream: Stream = .init(.{
+        .allocator = testing.allocator,
+        .handler = .init(&readonly_terminal),
+    });
     defer readonly_stream.deinit();
     try readonly_stream.handler.resize(.{
         .cols = 80,
@@ -1027,7 +1110,7 @@ test "resize failure preserves terminal state and does not write" {
 
     var handler: Handler = .init(&t);
     handler.effects.write_pty = &S.writePty;
-    var s: Stream = .initAlloc(alloc, handler);
+    var s: Stream = .init(.{ .allocator = alloc, .handler = handler });
     defer s.deinit();
 
     t.modes.set(.synchronized_output, true);
@@ -1065,15 +1148,15 @@ test "resize effects do not change canonical terminal state" {
     };
     var authoritative_handler: Handler = .init(&authoritative);
     authoritative_handler.effects.write_pty = &S.writePty;
-    var authoritative_stream: Stream = .initAlloc(
-        testing.allocator,
-        authoritative_handler,
-    );
+    var authoritative_stream: Stream = .init(.{
+        .allocator = testing.allocator,
+        .handler = authoritative_handler,
+    });
     defer authoritative_stream.deinit();
-    var readonly_stream: Stream = .initAlloc(
-        testing.allocator,
-        .init(&readonly),
-    );
+    var readonly_stream: Stream = .init(.{
+        .allocator = testing.allocator,
+        .handler = .init(&readonly),
+    });
     defer readonly_stream.deinit();
 
     authoritative.modes.set(.in_band_size_reports, true);
@@ -1101,7 +1184,7 @@ test "basic print" {
     var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 10, .rows = 10 });
     defer t.deinit(testing.allocator);
 
-    var s: Stream = .initAlloc(testing.allocator, .init(&t));
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = .init(&t) });
     defer s.deinit();
 
     s.nextSlice("Hello");
@@ -1119,7 +1202,7 @@ test "semantic failure is sticky while processing continues" {
     var t: Terminal = try .init(testing.io, alloc, .{ .cols = 10, .rows = 2 });
     defer t.deinit(alloc);
 
-    var s: Stream = .initAlloc(alloc, .init(&t));
+    var s: Stream = .init(.{ .allocator = alloc, .handler = .init(&t) });
     defer s.deinit();
     try testing.expect(!s.handler.semantic_failure);
 
@@ -1150,7 +1233,7 @@ test "cursor movement" {
     var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 10, .rows = 10 });
     defer t.deinit(testing.allocator);
 
-    var s: Stream = .initAlloc(testing.allocator, .init(&t));
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = .init(&t) });
     defer s.deinit();
 
     // Move cursor using escape sequences
@@ -1168,7 +1251,7 @@ test "erase operations" {
     var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 20, .rows = 10 });
     defer t.deinit(testing.allocator);
 
-    var s: Stream = .initAlloc(testing.allocator, .init(&t));
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = .init(&t) });
     defer s.deinit();
 
     // Print some text
@@ -1189,7 +1272,7 @@ test "tabs" {
     var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 80, .rows = 10 });
     defer t.deinit(testing.allocator);
 
-    var s: Stream = .initAlloc(testing.allocator, .init(&t));
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = .init(&t) });
     defer s.deinit();
 
     s.nextSlice("A\tB");
@@ -1204,7 +1287,7 @@ test "modes" {
     var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 80, .rows = 24 });
     defer t.deinit(testing.allocator);
 
-    var s: Stream = .initAlloc(testing.allocator, .init(&t));
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = .init(&t) });
     defer s.deinit();
 
     // Test wraparound mode
@@ -1219,7 +1302,7 @@ test "scrolling regions" {
     var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 80, .rows = 24 });
     defer t.deinit(testing.allocator);
 
-    var s: Stream = .initAlloc(testing.allocator, .init(&t));
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = .init(&t) });
     defer s.deinit();
 
     // Set scrolling region from line 5 to 20
@@ -1234,7 +1317,7 @@ test "charsets" {
     var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 80, .rows = 24 });
     defer t.deinit(testing.allocator);
 
-    var s: Stream = .initAlloc(testing.allocator, .init(&t));
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = .init(&t) });
     defer s.deinit();
 
     // Configure G0 as DEC special graphics
@@ -1250,7 +1333,7 @@ test "alt screen" {
     var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 10, .rows = 5 });
     defer t.deinit(testing.allocator);
 
-    var s: Stream = .initAlloc(testing.allocator, .init(&t));
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = .init(&t) });
     defer s.deinit();
 
     // Write to primary screen
@@ -1277,7 +1360,7 @@ test "cursor save and restore" {
     var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 80, .rows = 24 });
     defer t.deinit(testing.allocator);
 
-    var s: Stream = .initAlloc(testing.allocator, .init(&t));
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = .init(&t) });
     defer s.deinit();
 
     // Move cursor to 10,15
@@ -1303,7 +1386,7 @@ test "attributes" {
     var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 80, .rows = 24 });
     defer t.deinit(testing.allocator);
 
-    var s: Stream = .initAlloc(testing.allocator, .init(&t));
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = .init(&t) });
     defer s.deinit();
 
     // Set bold and write text
@@ -1315,11 +1398,99 @@ test "attributes" {
     try testing.expectEqualStrings("Bold", str);
 }
 
+test "DECRQSS responses" {
+    var t: Terminal = try .init(
+        testing.io,
+        testing.allocator,
+        .{ .cols = 80, .rows = 24 },
+    );
+    defer t.deinit(testing.allocator);
+
+    const S = struct {
+        var response: [dcs.Command.DECRQSS.max_response_bytes]u8 = undefined;
+        var response_len: usize = 0;
+        var calls: usize = 0;
+
+        fn reset() void {
+            response_len = 0;
+            calls = 0;
+        }
+
+        fn writePty(_: *Handler, data: [:0]const u8) void {
+            @memcpy(response[0..data.len], data);
+            response_len = data.len;
+            calls += 1;
+        }
+
+        fn expectResponse(expected: []const u8) !void {
+            try testing.expectEqual(@as(usize, 1), calls);
+            try testing.expectEqualStrings(
+                expected,
+                response[0..response_len],
+            );
+            reset();
+        }
+    };
+    S.reset();
+
+    var handler: Handler = .init(&t);
+    handler.effects.write_pty = &S.writePty;
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
+    defer s.deinit();
+
+    // SGR
+    s.nextSlice("\x1B[1m\x1BP$qm\x1B\\");
+    try S.expectResponse("\x1BP1$r0;1m\x1B\\");
+
+    // Requests larger than the parser's fixed request buffer are ignored,
+    // and the next DCS command must still be processed normally.
+    s.nextSlice("\x1BP$qfoo\x1B\\");
+    try testing.expectEqual(@as(usize, 0), S.calls);
+    try testing.expect(!s.handler.semantic_failure);
+    s.nextSlice("\x1BP$qm\x1B\\");
+    try S.expectResponse("\x1BP1$r0;1m\x1B\\");
+}
+
+test "DECRQSS without write effect is ignored" {
+    var t: Terminal = try .init(
+        testing.io,
+        testing.allocator,
+        .{ .cols = 80, .rows = 24 },
+    );
+    defer t.deinit(testing.allocator);
+
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = .init(&t) });
+    defer s.deinit();
+
+    s.nextSlice("\x1BP$qm\x1B\\");
+    try testing.expect(!s.handler.semantic_failure);
+}
+
+test "DCS command memory is released" {
+    var t: Terminal = try .init(
+        testing.io,
+        testing.allocator,
+        .{ .cols = 80, .rows = 24 },
+    );
+    defer t.deinit(testing.allocator);
+
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = .init(&t) });
+
+    // A completed, unsupported command transfers its allocation to Command;
+    // dcsCommand must release it even though stream_terminal ignores it.
+    s.nextSlice("\x1BP+q536D756C78\x1B\\");
+
+    // An incomplete command remains owned by the handler and must be released
+    // when the stream is deinitialized. testing.allocator detects either leak.
+    s.nextSlice("\x1BP+q536D756C78");
+    s.deinit();
+}
+
 test "DECALN screen alignment" {
     var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 10, .rows = 3 });
     defer t.deinit(testing.allocator);
 
-    var s: Stream = .initAlloc(testing.allocator, .init(&t));
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = .init(&t) });
     defer s.deinit();
 
     // Run DECALN
@@ -1339,7 +1510,7 @@ test "full reset" {
     var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 80, .rows = 24 });
     defer t.deinit(testing.allocator);
 
-    var s: Stream = .initAlloc(testing.allocator, .init(&t));
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = .init(&t) });
     defer s.deinit();
 
     // Make some changes
@@ -1379,7 +1550,7 @@ test "glyph protocol APC with write_pty callback" {
     var handler: Handler = .init(&t);
     handler.effects.write_pty = &S.writePty;
 
-    var s: Stream = .initAlloc(testing.allocator, handler);
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
     defer s.deinit();
 
     s.nextSlice("\x1B_25a1;s\x1B\\");
@@ -1394,7 +1565,7 @@ test "ignores query actions" {
     var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 80, .rows = 24 });
     defer t.deinit(testing.allocator);
 
-    var s: Stream = .initAlloc(testing.allocator, .init(&t));
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = .init(&t) });
     defer s.deinit();
 
     // These should be ignored without error
@@ -1422,7 +1593,7 @@ test "OSC 4 set and reset palette" {
     var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 10, .rows = 10 });
     defer t.deinit(testing.allocator);
 
-    var s: Stream = .initAlloc(testing.allocator, .init(&t));
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = .init(&t) });
     defer s.deinit();
 
     // Save default color
@@ -1445,7 +1616,7 @@ test "OSC 104 reset all palette colors" {
     var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 10, .rows = 10 });
     defer t.deinit(testing.allocator);
 
-    var s: Stream = .initAlloc(testing.allocator, .init(&t));
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = .init(&t) });
     defer s.deinit();
 
     // Set multiple colors
@@ -1470,7 +1641,7 @@ test "OSC 10 set and reset foreground color" {
     var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 10, .rows = 10 });
     defer t.deinit(testing.allocator);
 
-    var s: Stream = .initAlloc(testing.allocator, .init(&t));
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = .init(&t) });
     defer s.deinit();
 
     // Initially unset
@@ -1492,7 +1663,7 @@ test "OSC 11 set and reset background color" {
     var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 10, .rows = 10 });
     defer t.deinit(testing.allocator);
 
-    var s: Stream = .initAlloc(testing.allocator, .init(&t));
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = .init(&t) });
     defer s.deinit();
 
     // Set background to green
@@ -1511,7 +1682,7 @@ test "OSC 12 set and reset cursor color" {
     var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 10, .rows = 10 });
     defer t.deinit(testing.allocator);
 
-    var s: Stream = .initAlloc(testing.allocator, .init(&t));
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = .init(&t) });
     defer s.deinit();
 
     // Set cursor to blue
@@ -1549,7 +1720,7 @@ test "OSC color query responses" {
     var handler: Handler = .init(&t);
     handler.effects.write_pty = &S.writePty;
 
-    var s: Stream = .initAlloc(testing.allocator, handler);
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
     defer s.deinit();
 
     s.nextSlice("\x1b]10;?\x1b\\");
@@ -1587,7 +1758,7 @@ test "kitty color protocol set palette" {
     var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 10, .rows = 10 });
     defer t.deinit(testing.allocator);
 
-    var s: Stream = .initAlloc(testing.allocator, .init(&t));
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = .init(&t) });
     defer s.deinit();
 
     // Set palette color 5 to magenta using kitty protocol
@@ -1603,7 +1774,7 @@ test "kitty color protocol reset palette" {
     var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 10, .rows = 10 });
     defer t.deinit(testing.allocator);
 
-    var s: Stream = .initAlloc(testing.allocator, .init(&t));
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = .init(&t) });
     defer s.deinit();
 
     // Set and then reset palette color
@@ -1620,7 +1791,7 @@ test "kitty color protocol set foreground" {
     var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 10, .rows = 10 });
     defer t.deinit(testing.allocator);
 
-    var s: Stream = .initAlloc(testing.allocator, .init(&t));
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = .init(&t) });
     defer s.deinit();
 
     // Set foreground using kitty protocol
@@ -1635,7 +1806,7 @@ test "kitty color protocol set background" {
     var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 10, .rows = 10 });
     defer t.deinit(testing.allocator);
 
-    var s: Stream = .initAlloc(testing.allocator, .init(&t));
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = .init(&t) });
     defer s.deinit();
 
     // Set background using kitty protocol
@@ -1650,7 +1821,7 @@ test "kitty color protocol set cursor" {
     var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 10, .rows = 10 });
     defer t.deinit(testing.allocator);
 
-    var s: Stream = .initAlloc(testing.allocator, .init(&t));
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = .init(&t) });
     defer s.deinit();
 
     // Set cursor using kitty protocol
@@ -1665,7 +1836,7 @@ test "kitty color protocol reset foreground" {
     var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 10, .rows = 10 });
     defer t.deinit(testing.allocator);
 
-    var s: Stream = .initAlloc(testing.allocator, .init(&t));
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = .init(&t) });
     defer s.deinit();
 
     // Set and reset foreground
@@ -1700,7 +1871,7 @@ test "kitty color protocol query responses" {
     var handler: Handler = .init(&t);
     handler.effects.write_pty = &S.writePty;
 
-    var s: Stream = .initAlloc(testing.allocator, handler);
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
     defer s.deinit();
 
     s.nextSlice("\x1b]21;background=?\x1b\\");
@@ -1721,7 +1892,7 @@ test "palette dirty flag set on color change" {
     var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 10, .rows = 10 });
     defer t.deinit(testing.allocator);
 
-    var s: Stream = .initAlloc(testing.allocator, .init(&t));
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = .init(&t) });
     defer s.deinit();
 
     // Clear dirty flag
@@ -1746,7 +1917,7 @@ test "semantic prompt fresh line" {
     var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 10, .rows = 10 });
     defer t.deinit(testing.allocator);
 
-    var s: Stream = .initAlloc(testing.allocator, .init(&t));
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = .init(&t) });
     defer s.deinit();
 
     s.nextSlice("Hello");
@@ -1759,7 +1930,7 @@ test "semantic prompt fresh line new prompt" {
     var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 10, .rows = 10 });
     defer t.deinit(testing.allocator);
 
-    var s: Stream = .initAlloc(testing.allocator, .init(&t));
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = .init(&t) });
     defer s.deinit();
 
     // Write some text and then send OSC 133;A (fresh_line_new_prompt)
@@ -1783,7 +1954,7 @@ test "semantic prompt end of input, then start output" {
     var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 10, .rows = 10 });
     defer t.deinit(testing.allocator);
 
-    var s: Stream = .initAlloc(testing.allocator, .init(&t));
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = .init(&t) });
     defer s.deinit();
 
     // Write some text and then send OSC 133;A (fresh_line_new_prompt)
@@ -1800,7 +1971,7 @@ test "semantic prompt prompt_start" {
     var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 10, .rows = 10 });
     defer t.deinit(testing.allocator);
 
-    var s: Stream = .initAlloc(testing.allocator, .init(&t));
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = .init(&t) });
     defer s.deinit();
 
     // Write some text
@@ -1817,7 +1988,7 @@ test "semantic prompt new_command" {
     var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 10, .rows = 10 });
     defer t.deinit(testing.allocator);
 
-    var s: Stream = .initAlloc(testing.allocator, .init(&t));
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = .init(&t) });
     defer s.deinit();
 
     // Write some text
@@ -1835,7 +2006,7 @@ test "semantic prompt new_command at column zero" {
     var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 10, .rows = 10 });
     defer t.deinit(testing.allocator);
 
-    var s: Stream = .initAlloc(testing.allocator, .init(&t));
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = .init(&t) });
     defer s.deinit();
 
     // OSC 133;N when already at column 0 should stay on same line
@@ -1849,7 +2020,7 @@ test "semantic prompt end_prompt_start_input_terminate_eol clears on linefeed" {
     var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 10, .rows = 10 });
     defer t.deinit(testing.allocator);
 
-    var s: Stream = .initAlloc(testing.allocator, .init(&t));
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = .init(&t) });
     defer s.deinit();
 
     // Set input terminated by EOL
@@ -1867,7 +2038,7 @@ test "bell effect callback" {
 
     // Test bell with null callback (default readonly effects) doesn't crash
     {
-        var s: Stream = .initAlloc(testing.allocator, .init(&t));
+        var s: Stream = .init(.{ .allocator = testing.allocator, .handler = .init(&t) });
         defer s.deinit();
 
         s.nextSlice("\x07");
@@ -1894,7 +2065,7 @@ test "bell effect callback" {
         var handler: Handler = .init(&t);
         handler.effects.bell = &S.bell;
 
-        var s: Stream = .initAlloc(testing.allocator, handler);
+        var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
         defer s.deinit();
 
         s.nextSlice("\x07");
@@ -1905,13 +2076,126 @@ test "bell effect callback" {
     }
 }
 
+test "desktop_notification effect callback" {
+    var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 80, .rows = 24 });
+    defer t.deinit(testing.allocator);
+
+    // A null callback (the default readonly effects) silently ignores
+    // notifications and leaves the terminal usable.
+    {
+        var s: Stream = .init(.{ .allocator = testing.allocator, .handler = .init(&t) });
+        defer s.deinit();
+
+        s.nextSlice("\x1B]9;Ignored\x1B\\AfterNotification");
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("AfterNotification", str);
+    }
+
+    t.fullReset();
+
+    const S = struct {
+        var count: usize = 0;
+        var last_title: []const u8 = "";
+        var last_body: []const u8 = "";
+
+        fn desktopNotification(
+            _: *Handler,
+            notification: Action.ShowDesktopNotification,
+        ) void {
+            count += 1;
+            last_title = notification.title;
+            last_body = notification.body;
+        }
+    };
+    S.count = 0;
+    S.last_title = "";
+    S.last_body = "";
+
+    var handler: Handler = .init(&t);
+    handler.effects.desktop_notification = &S.desktopNotification;
+
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
+    defer s.deinit();
+
+    // OSC 9 is split across writes and carries only a body.
+    s.nextSlice("\x1B]9;Build ");
+    try testing.expectEqual(@as(usize, 0), S.count);
+    s.nextSlice("complete\x1B\\");
+    try testing.expectEqual(@as(usize, 1), S.count);
+    try testing.expectEqualStrings("", S.last_title);
+    try testing.expectEqualStrings("Build complete", S.last_body);
+
+    // OSC 777 preserves its separate title and body fields.
+    s.nextSlice("\x1B]777;notify;Codex;Needs attention\x07");
+    try testing.expectEqual(@as(usize, 2), S.count);
+    try testing.expectEqualStrings("Codex", S.last_title);
+    try testing.expectEqualStrings("Needs attention", S.last_body);
+}
+
+test "progress_report effect callback" {
+    var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 80, .rows = 24 });
+    defer t.deinit(testing.allocator);
+
+    // A null callback (the default readonly effects) silently ignores reports.
+    {
+        var s: Stream = .init(.{ .allocator = testing.allocator, .handler = .init(&t) });
+        defer s.deinit();
+        s.nextSlice("\x1B]9;4;1;25\x1B\\");
+    }
+
+    const S = struct {
+        var count: usize = 0;
+        var last_state: osc.Command.ProgressReport.State = .remove;
+        var last_progress: ?u8 = null;
+
+        fn progressReport(_: *Handler, report: osc.Command.ProgressReport) void {
+            count += 1;
+            last_state = report.state;
+            last_progress = report.progress;
+        }
+    };
+    S.count = 0;
+    S.last_state = .remove;
+    S.last_progress = null;
+
+    var handler: Handler = .init(&t);
+    handler.effects.progress_report = &S.progressReport;
+
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
+    defer s.deinit();
+
+    const cases = [_]struct {
+        sequence: []const u8,
+        state: osc.Command.ProgressReport.State,
+        progress: ?u8,
+    }{
+        .{ .sequence = "\x1B]9;4;0;\x1B\\", .state = .remove, .progress = null },
+        .{ .sequence = "\x1B]9;4;1;42\x07", .state = .set, .progress = 42 },
+        .{ .sequence = "\x1B]9;4;2;7\x1B\\", .state = .@"error", .progress = 7 },
+        .{ .sequence = "\x1B]9;4;3\x1B\\", .state = .indeterminate, .progress = null },
+        .{ .sequence = "\x1B]9;4;4;75\x1B\\", .state = .pause, .progress = 75 },
+    };
+
+    for (cases, 1..) |case, expected_count| {
+        // Split each sequence to verify parsing survives PTY read boundaries.
+        const midpoint = case.sequence.len / 2;
+        s.nextSlice(case.sequence[0..midpoint]);
+        try testing.expectEqual(expected_count - 1, S.count);
+        s.nextSlice(case.sequence[midpoint..]);
+        try testing.expectEqual(expected_count, S.count);
+        try testing.expectEqual(case.state, S.last_state);
+        try testing.expectEqual(case.progress, S.last_progress);
+    }
+}
+
 test "clipboard_write effect callback" {
     var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 80, .rows = 24 });
     defer t.deinit(testing.allocator);
 
     // A null callback (the default readonly effects) silently ignores writes.
     {
-        var s: Stream = .initAlloc(testing.allocator, .init(&t));
+        var s: Stream = .init(.{ .allocator = testing.allocator, .handler = .init(&t) });
         defer s.deinit();
 
         s.nextSlice("\x1B]52;c;aGVsbG8=\x1B\\");
@@ -1963,7 +2247,7 @@ test "clipboard_write effect callback" {
     var handler: Handler = .init(&t);
     handler.effects.clipboard_write = &S.clipboardWrite;
 
-    var s: Stream = .initAlloc(testing.allocator, handler);
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
     defer s.deinit();
 
     // Selectors are normalized and payloads are decoded before the callback.
@@ -2040,7 +2324,7 @@ test "clipboard_write allocation failure is ignored" {
     var handler: Handler = .init(&t);
     handler.effects.clipboard_write = &S.clipboardWrite;
 
-    var s: Stream = .initAlloc(testing.allocator, handler);
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
     defer s.deinit();
 
     // Only the decoded scratch data uses the terminal allocator here. Swap in
@@ -2061,7 +2345,7 @@ test "request mode DECRQM with write_pty callback" {
 
     // Without callback, DECRQM should not crash
     {
-        var s: Stream = .initAlloc(testing.allocator, .init(&t));
+        var s: Stream = .init(.{ .allocator = testing.allocator, .handler = .init(&t) });
         defer s.deinit();
 
         // DECRQM for mode 7 (wraparound) — should be silently ignored
@@ -2085,7 +2369,7 @@ test "request mode DECRQM with write_pty callback" {
         var handler: Handler = .init(&t);
         handler.effects.write_pty = &S.writePty;
 
-        var s: Stream = .initAlloc(testing.allocator, handler);
+        var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
         defer s.deinit();
 
         // Wraparound mode (7) is set by default
@@ -2109,11 +2393,11 @@ test "stream: CSI W with intermediate but no params" {
     var t: Terminal = try .init(testing.io, testing.allocator, .{
         .cols = 80,
         .rows = 24,
-        .max_scrollback = 100,
+        .max_scrollback_bytes = 100,
     });
     defer t.deinit(testing.allocator);
 
-    var s: Stream = .initAlloc(testing.allocator, .init(&t));
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = .init(&t) });
     defer s.deinit();
 
     s.nextSlice("\x1b[?W");
@@ -2134,7 +2418,7 @@ test "window_title effect is called" {
     var handler: Handler = .init(&t);
     handler.effects.title_changed = &S.titleChanged;
 
-    var s: Stream = .initAlloc(testing.allocator, handler);
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
     defer s.deinit();
 
     // Set window title via OSC 2
@@ -2147,7 +2431,7 @@ test "window_title effect not called without callback" {
     var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 80, .rows = 24 });
     defer t.deinit(testing.allocator);
 
-    var s: Stream = .initAlloc(testing.allocator, .init(&t));
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = .init(&t) });
     defer s.deinit();
 
     // Should not crash when no callback is set
@@ -2178,7 +2462,7 @@ test "window_title effect with empty title" {
     var handler: Handler = .init(&t);
     handler.effects.title_changed = &S.titleChanged;
 
-    var s: Stream = .initAlloc(testing.allocator, handler);
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
     defer s.deinit();
 
     // Set empty window title
@@ -2202,7 +2486,7 @@ test "kitty_keyboard_query" {
     var handler: Handler = .init(&t);
     handler.effects.write_pty = &S.writePty;
 
-    var s: Stream = .initAlloc(testing.allocator, handler);
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
     defer s.deinit();
 
     // Default kitty keyboard flags should be 0
@@ -2231,7 +2515,7 @@ test "xtversion default" {
     var handler: Handler = .init(&t);
     handler.effects.write_pty = &S.writePty;
 
-    var s: Stream = .initAlloc(testing.allocator, handler);
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
     defer s.deinit();
 
     // Without xtversion effect set, should report "libghostty"
@@ -2258,7 +2542,7 @@ test "xtversion with effect" {
     handler.effects.write_pty = &S.writePty;
     handler.effects.xtversion = &S.xtversion;
 
-    var s: Stream = .initAlloc(testing.allocator, handler);
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
     defer s.deinit();
 
     s.nextSlice("\x1b[>0q");
@@ -2284,7 +2568,7 @@ test "xtversion with empty string effect" {
     handler.effects.write_pty = &S.writePty;
     handler.effects.xtversion = &S.xtversion;
 
-    var s: Stream = .initAlloc(testing.allocator, handler);
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
     defer s.deinit();
 
     // Empty string from effect should fall back to "libghostty"
@@ -2311,7 +2595,7 @@ test "size report csi_14_t with effect" {
     handler.effects.write_pty = &S.writePty;
     handler.effects.size = &S.getSize;
 
-    var s: Stream = .initAlloc(testing.allocator, handler);
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
     defer s.deinit();
 
     // CSI 14 t - report text area size in pixels
@@ -2339,7 +2623,7 @@ test "size report csi_16_t with effect" {
     handler.effects.write_pty = &S.writePty;
     handler.effects.size = &S.getSize;
 
-    var s: Stream = .initAlloc(testing.allocator, handler);
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
     defer s.deinit();
 
     // CSI 16 t - report cell size in pixels
@@ -2367,7 +2651,7 @@ test "size report csi_18_t with effect" {
     handler.effects.write_pty = &S.writePty;
     handler.effects.size = &S.getSize;
 
-    var s: Stream = .initAlloc(testing.allocator, handler);
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
     defer s.deinit();
 
     // CSI 18 t - report text area size in characters
@@ -2391,7 +2675,7 @@ test "size report no effect callback" {
     var handler: Handler = .init(&t);
     handler.effects.write_pty = &S.writePty;
 
-    var s: Stream = .initAlloc(testing.allocator, handler);
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
     defer s.deinit();
 
     // Without size effect, size reports should be silently ignored
@@ -2414,7 +2698,7 @@ test "size report csi_21_t title" {
     var handler: Handler = .init(&t);
     handler.effects.write_pty = &S.writePty;
 
-    var s: Stream = .initAlloc(testing.allocator, handler);
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
     defer s.deinit();
 
     // Set a title first
@@ -2441,7 +2725,7 @@ test "enquiry no effect" {
     var handler: Handler = .init(&t);
     handler.effects.write_pty = &S.writePty;
 
-    var s: Stream = .initAlloc(testing.allocator, handler);
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
     defer s.deinit();
 
     // ENQ without enquiry effect should not write anything
@@ -2468,7 +2752,7 @@ test "enquiry with effect" {
     handler.effects.write_pty = &S.writePty;
     handler.effects.enquiry = &S.enquiry;
 
-    var s: Stream = .initAlloc(testing.allocator, handler);
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
     defer s.deinit();
 
     s.nextSlice("\x05");
@@ -2495,7 +2779,7 @@ test "enquiry with empty response" {
     handler.effects.write_pty = &S.writePty;
     handler.effects.enquiry = &S.enquiry;
 
-    var s: Stream = .initAlloc(testing.allocator, handler);
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
     defer s.deinit();
 
     // Empty enquiry response should not write anything
@@ -2520,7 +2804,7 @@ test "device status: operating status" {
     var handler: Handler = .init(&t);
     handler.effects.write_pty = &S.writePty;
 
-    var s: Stream = .initAlloc(testing.allocator, handler);
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
     defer s.deinit();
 
     // CSI 5 n — operating status report
@@ -2545,7 +2829,7 @@ test "device status: cursor position" {
     var handler: Handler = .init(&t);
     handler.effects.write_pty = &S.writePty;
 
-    var s: Stream = .initAlloc(testing.allocator, handler);
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
     defer s.deinit();
 
     // Default position is 0,0 — reported as 1,1
@@ -2575,7 +2859,7 @@ test "device status: cursor position with origin mode" {
     var handler: Handler = .init(&t);
     handler.effects.write_pty = &S.writePty;
 
-    var s: Stream = .initAlloc(testing.allocator, handler);
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
     defer s.deinit();
 
     // Set scroll region rows 5-20
@@ -2611,7 +2895,7 @@ test "device status: color scheme dark" {
     handler.effects.write_pty = &S.writePty;
     handler.effects.color_scheme = &S.colorScheme;
 
-    var s: Stream = .initAlloc(testing.allocator, handler);
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
     defer s.deinit();
 
     // CSI ? 996 n — color scheme query
@@ -2640,7 +2924,7 @@ test "device status: color scheme light" {
     handler.effects.write_pty = &S.writePty;
     handler.effects.color_scheme = &S.colorScheme;
 
-    var s: Stream = .initAlloc(testing.allocator, handler);
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
     defer s.deinit();
 
     // CSI ? 996 n — color scheme query
@@ -2665,7 +2949,7 @@ test "device status: color scheme without callback" {
     var handler: Handler = .init(&t);
     handler.effects.write_pty = &S.writePty;
 
-    var s: Stream = .initAlloc(testing.allocator, handler);
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
     defer s.deinit();
 
     // Without color_scheme effect, query should be silently ignored
@@ -2673,17 +2957,69 @@ test "device status: color scheme without callback" {
     try testing.expect(S.written == null);
 }
 
+test "visibility reports" {
+    var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 80, .rows = 24 });
+    defer t.deinit(testing.allocator);
+
+    const S = struct {
+        var written: ?[]const u8 = null;
+        var count: usize = 0;
+
+        fn writePty(_: *Handler, data: [:0]const u8) void {
+            if (written) |old| testing.allocator.free(old);
+            written = testing.allocator.dupe(u8, data) catch @panic("OOM");
+            count += 1;
+        }
+    };
+    S.written = null;
+    S.count = 0;
+    defer if (S.written) |old| testing.allocator.free(old);
+
+    var handler: Handler = .init(&t);
+    handler.effects.write_pty = &S.writePty;
+
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
+    defer s.deinit();
+
+    // Mode 2033 is supported and initially disabled.
+    s.nextSlice("\x1B[?2033$p");
+    try testing.expectEqualStrings("\x1B[?2033;2$y", S.written.?);
+
+    // A one-shot query reports the current state without enabling the mode.
+    s.nextSlice("\x1B[?998n");
+    try testing.expectEqualStrings("\x1B[?999;1n", S.written.?);
+    try testing.expect(!t.modes.get(.report_visibility));
+
+    // Enabling always sends an immediate report, even when already enabled.
+    t.flags.visible = false;
+    s.nextSlice("\x1B[?2033h");
+    try testing.expectEqualStrings("\x1B[?999;2n", S.written.?);
+    const count = S.count;
+    s.nextSlice("\x1B[?2033h");
+    try testing.expectEqual(count + 1, S.count);
+
+    // Disabling sends no report.
+    s.nextSlice("\x1B[?2033l");
+    try testing.expectEqual(count + 1, S.count);
+
+    // A terminal reset preserves the view's externally owned visibility.
+    s.nextSlice("\x1Bc");
+    s.nextSlice("\x1B[?998n");
+    try testing.expectEqualStrings("\x1B[?999;2n", S.written.?);
+}
+
 test "device status: readonly ignores all" {
     var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 80, .rows = 24 });
     defer t.deinit(testing.allocator);
 
-    var s: Stream = .initAlloc(testing.allocator, .init(&t));
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = .init(&t) });
     defer s.deinit();
 
     // All device status queries should be silently ignored without effects
     s.nextSlice("\x1B[5n");
     s.nextSlice("\x1B[6n");
     s.nextSlice("\x1B[?996n");
+    s.nextSlice("\x1B[?998n");
 
     // Terminal should still be functional
     s.nextSlice("Test");
@@ -2713,7 +3049,7 @@ test "device attributes: primary DA" {
     handler.effects.write_pty = &S.writePty;
     handler.effects.device_attributes = &S.da;
 
-    var s: Stream = .initAlloc(testing.allocator, handler);
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
     defer s.deinit();
 
     s.nextSlice("\x1B[c");
@@ -2741,7 +3077,7 @@ test "device attributes: secondary DA" {
     handler.effects.write_pty = &S.writePty;
     handler.effects.device_attributes = &S.da;
 
-    var s: Stream = .initAlloc(testing.allocator, handler);
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
     defer s.deinit();
 
     s.nextSlice("\x1B[>c");
@@ -2769,7 +3105,7 @@ test "device attributes: tertiary DA" {
     handler.effects.write_pty = &S.writePty;
     handler.effects.device_attributes = &S.da;
 
-    var s: Stream = .initAlloc(testing.allocator, handler);
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
     defer s.deinit();
 
     s.nextSlice("\x1B[=c");
@@ -2780,7 +3116,7 @@ test "device attributes: readonly ignores" {
     var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 80, .rows = 24 });
     defer t.deinit(testing.allocator);
 
-    var s: Stream = .initAlloc(testing.allocator, .init(&t));
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = .init(&t) });
     defer s.deinit();
 
     // All DA queries should be silently ignored without effects
@@ -2825,7 +3161,7 @@ test "device attributes: custom response" {
     handler.effects.write_pty = &S.writePty;
     handler.effects.device_attributes = &S.da;
 
-    var s: Stream = .initAlloc(testing.allocator, handler);
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
     defer s.deinit();
 
     s.nextSlice("\x1B[c");
@@ -2854,7 +3190,7 @@ test "kitty graphics APC response" {
     var handler: Handler = .init(&t);
     handler.effects.write_pty = &S.writePty;
 
-    var s: Stream = .initAlloc(testing.allocator, handler);
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
     defer s.deinit();
 
     // Send a kitty graphics transmit command with image id 1
@@ -2871,7 +3207,7 @@ test "kitty graphics via APC" {
     defer t.deinit(testing.allocator);
 
     const handler: Handler = .init(&t);
-    var s: Stream = .initAlloc(testing.allocator, handler);
+    var s: Stream = .init(.{ .allocator = testing.allocator, .handler = handler });
     defer s.deinit();
 
     // Send a kitty graphics transmit command via APC:
@@ -2882,4 +3218,154 @@ test "kitty graphics via APC" {
     const storage = &t.screens.active.kitty_images;
     const img = storage.imageById(1).?;
     try testing.expectEqual(.rgb, img.format);
+}
+
+test "continuation reconstructs standard stream without duplicate effects" {
+    const S = struct {
+        var bell_count: usize = 0;
+        var title_count: usize = 0;
+        var write_count: usize = 0;
+        var notification_count: usize = 0;
+        var clipboard_count: usize = 0;
+
+        fn bell(_: *Handler) void {
+            bell_count += 1;
+        }
+
+        fn titleChanged(_: *Handler) void {
+            title_count += 1;
+        }
+
+        fn writePty(_: *Handler, _: [:0]const u8) void {
+            write_count += 1;
+        }
+
+        fn desktopNotification(
+            _: *Handler,
+            _: Action.ShowDesktopNotification,
+        ) void {
+            notification_count += 1;
+        }
+
+        fn clipboardWrite(
+            _: *Handler,
+            _: clipboard.Write,
+        ) clipboard.WriteResult {
+            clipboard_count += 1;
+            return .success;
+        }
+
+        fn reset() void {
+            bell_count = 0;
+            title_count = 0;
+            write_count = 0;
+            notification_count = 0;
+            clipboard_count = 0;
+        }
+    };
+    S.reset();
+
+    const committed = "A\n\x07" ++
+        "\x1b]2;title\x1b\\" ++
+        "\x1b[5n" ++
+        "\x1b]9;body\x1b\\" ++
+        "\x1b]52;c;aA==\x1b\\";
+
+    var source_terminal: Terminal = try .init(
+        testing.io,
+        testing.allocator,
+        .{ .cols = 80, .rows = 24 },
+    );
+    defer source_terminal.deinit(testing.allocator);
+
+    var source_handler: Handler = .init(&source_terminal);
+    source_handler.effects.bell = &S.bell;
+    source_handler.effects.title_changed = &S.titleChanged;
+    source_handler.effects.write_pty = &S.writePty;
+    source_handler.effects.desktop_notification = &S.desktopNotification;
+    source_handler.effects.clipboard_write = &S.clipboardWrite;
+    var source = Stream.init(.{
+        .allocator = testing.allocator,
+        .handler = source_handler,
+        .continuation_max_bytes = 1024,
+    });
+    defer source.deinit();
+
+    // Terminal mutation and all callbacks have already committed. The
+    // unfinished CSI is the only input needed to recreate the stream state.
+    source.nextSlice(committed ++ "\x1b[31");
+    try testing.expectEqual(@as(usize, 1), S.bell_count);
+    try testing.expectEqual(@as(usize, 1), S.title_count);
+    try testing.expectEqual(@as(usize, 1), S.write_count);
+    try testing.expectEqual(@as(usize, 1), S.notification_count);
+    try testing.expectEqual(@as(usize, 1), S.clipboard_count);
+
+    var continuation_buf: [1024]u8 = undefined;
+    var continuation_writer: std.Io.Writer = .fixed(&continuation_buf);
+    try source.writeContinuation(&continuation_writer);
+    try testing.expectEqualStrings("\x1b[31", continuation_writer.buffered());
+
+    var restored_terminal: Terminal = try .init(
+        testing.io,
+        testing.allocator,
+        .{ .cols = 80, .rows = 24 },
+    );
+    defer restored_terminal.deinit(testing.allocator);
+
+    // Stand in for restoring the already-committed terminal snapshot.
+    {
+        var snapshot_stream: Stream = .init(.{
+            .allocator = testing.allocator,
+            .handler = .init(&restored_terminal),
+        });
+        defer snapshot_stream.deinit();
+        snapshot_stream.nextSlice(committed);
+    }
+
+    const before = try restored_terminal.plainString(testing.allocator);
+    defer testing.allocator.free(before);
+    const before_x = restored_terminal.screens.active.cursor.x;
+    const before_y = restored_terminal.screens.active.cursor.y;
+    const before_style = restored_terminal.screens.active.cursor.style_id;
+    const before_title = restored_terminal.getTitle().?;
+
+    var restored_handler: Handler = .init(&restored_terminal);
+    restored_handler.effects.bell = &S.bell;
+    restored_handler.effects.title_changed = &S.titleChanged;
+    restored_handler.effects.write_pty = &S.writePty;
+    restored_handler.effects.desktop_notification = &S.desktopNotification;
+    restored_handler.effects.clipboard_write = &S.clipboardWrite;
+    var restored = Stream.init(.{
+        .allocator = testing.allocator,
+        .handler = restored_handler,
+        .continuation_max_bytes = 1024,
+    });
+    defer restored.deinit();
+
+    S.reset();
+    restored.nextSlice(continuation_writer.buffered());
+    try testing.expectEqual(@as(usize, 0), S.bell_count);
+    try testing.expectEqual(@as(usize, 0), S.title_count);
+    try testing.expectEqual(@as(usize, 0), S.write_count);
+    try testing.expectEqual(@as(usize, 0), S.notification_count);
+    try testing.expectEqual(@as(usize, 0), S.clipboard_count);
+    const after = try restored_terminal.plainString(testing.allocator);
+    defer testing.allocator.free(after);
+    try testing.expectEqualStrings(before, after);
+    try testing.expectEqual(before_x, restored_terminal.screens.active.cursor.x);
+    try testing.expectEqual(before_y, restored_terminal.screens.active.cursor.y);
+    try testing.expectEqual(before_style, restored_terminal.screens.active.cursor.style_id);
+    try testing.expectEqualStrings(before_title, restored_terminal.getTitle().?);
+
+    source.nextSlice("mB");
+    restored.nextSlice("mB");
+    const source_text = try source_terminal.plainString(testing.allocator);
+    defer testing.allocator.free(source_text);
+    const restored_text = try restored_terminal.plainString(testing.allocator);
+    defer testing.allocator.free(restored_text);
+    try testing.expectEqualStrings(source_text, restored_text);
+    try testing.expectEqual(
+        source_terminal.screens.active.cursor.style_id,
+        restored_terminal.screens.active.cursor.style_id,
+    );
 }

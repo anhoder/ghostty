@@ -6,6 +6,7 @@ const adw = @import("adw");
 const gdk = @import("gdk");
 const gio = @import("gio");
 const glib = @import("glib");
+const glibunix = @import("glibunix");
 const gobject = @import("gobject");
 const gtk = @import("gtk");
 
@@ -702,6 +703,11 @@ pub const Application = extern struct {
             .initial_size => return Action.initialSize(target, value),
 
             .inspector => return Action.controlInspector(target, value),
+            .export_terminal_io => return try Action.exportTerminalIO(
+                self,
+                target,
+                value,
+            ),
 
             .key_sequence => return Action.keySequence(target, value),
             .key_table => return Action.keyTable(target, value),
@@ -1417,7 +1423,7 @@ pub const Application = extern struct {
     fn startupSignals(self: *Self) void {
         const priv = self.private();
         assert(priv.signal_source == null);
-        priv.signal_source = glib.unixSignalAdd(
+        priv.signal_source = glibunix.signalAdd(
             @intFromEnum(std.posix.SIG.USR2),
             handleSigusr2,
             self,
@@ -1468,6 +1474,14 @@ pub const Application = extern struct {
             priv.global_shortcuts,
             *Application,
             globalShortcutTrigger,
+            self,
+            .{},
+        );
+
+        _ = GlobalShortcuts.signals.@"bind-failed".connect(
+            priv.global_shortcuts,
+            *Application,
+            globalShortcutBindFailed,
             self,
             .{},
         );
@@ -1677,6 +1691,41 @@ pub const Application = extern struct {
         self.core().performAllAction(self.rt(), action.*) catch |err| {
             log.warn("failed to perform action={}", .{err});
         };
+    }
+
+    /// May fire before any window exists, hence a desktop notification
+    /// rather than a toast.
+    fn globalShortcutBindFailed(
+        _: *GlobalShortcuts,
+        failure: *const GlobalShortcuts.BindFailed,
+        self: *Self,
+    ) callconv(.c) void {
+        var label_buf: [128]u8 = undefined;
+        var writer: std.Io.Writer = .fixed(&label_buf);
+        const label: []const u8 = label: {
+            const ok = key.labelFromTrigger(&writer, failure.trigger) catch false;
+            break :label if (ok) writer.buffered() else "?";
+        };
+
+        const detail: [*:0]const u8 = detail: {
+            if (failure.message[0] != 0) break :detail failure.message;
+            break :detail if (failure.revoked)
+                i18n._("The keybind was revoked by the system.")
+            else
+                i18n._("The keybind was denied by the system.");
+        };
+
+        var body_buf: [512]u8 = undefined;
+        const body = std.fmt.bufPrintZ(
+            &body_buf,
+            "{s}: {s}",
+            .{ label, detail },
+        ) catch return;
+
+        Action.desktopNotification(self, .app, .{
+            .title = std.mem.span(i18n._("Global keybind unavailable")),
+            .body = body,
+        });
     }
 
     fn actionReloadConfig(
@@ -1952,6 +2001,98 @@ const Action = struct {
             .surface => |v| v.rt_surface.gobj().copyTitleToClipboard(),
         };
     }
+
+    pub fn exportTerminalIO(
+        self: *Application,
+        target: apprt.Target,
+        value: apprt.Action.Value(.export_terminal_io),
+    ) Allocator.Error!bool {
+        const surface = switch (target) {
+            .app => return false,
+            .surface => |v| v.rt_surface.gobj(),
+        };
+
+        const alloc = self.allocator();
+        const contents = try alloc.dupe(u8, value.contents);
+        errdefer alloc.free(contents);
+        const request = try alloc.create(ExportTerminalIORequest);
+        errdefer alloc.destroy(request);
+        request.* = .{
+            .alloc = alloc,
+            .contents = contents,
+        };
+
+        const parent = ext.getAncestor(gtk.Window, surface.as(gtk.Widget));
+        const dialog = gtk.FileChooserNative.new(
+            i18n._("Export Terminal IO Events"),
+            parent,
+            .save,
+            i18n._("Export"),
+            i18n._("Cancel"),
+        );
+        const chooser = dialog.as(gtk.FileChooser);
+        chooser.setCreateFolders(1);
+        chooser.setCurrentName("ghostty-terminal-io.txt");
+
+        _ = gtk.NativeDialog.signals.response.connect(
+            dialog,
+            *ExportTerminalIORequest,
+            ExportTerminalIORequest.response,
+            request,
+            .{ .destroyData = ExportTerminalIORequest.destroy },
+        );
+        dialog.as(gtk.NativeDialog).show();
+        return true;
+    }
+
+    const ExportTerminalIORequest = struct {
+        alloc: Allocator,
+        contents: []u8,
+
+        fn destroy(self: *ExportTerminalIORequest) callconv(.c) void {
+            self.alloc.free(self.contents);
+            self.alloc.destroy(self);
+        }
+
+        fn response(
+            dialog: *gtk.FileChooserNative,
+            response_id: c_int,
+            self: *ExportTerminalIORequest,
+        ) callconv(.c) void {
+            defer dialog.unref();
+
+            if (response_id != @intFromEnum(gtk.ResponseType.accept)) return;
+
+            const file = dialog.as(gtk.FileChooser).getFile() orelse {
+                log.warn("inspector export dialog returned no file", .{});
+                return;
+            };
+            defer file.unref();
+
+            var gerr: ?*glib.Error = null;
+            const replaced = file.replaceContents(
+                self.contents.ptr,
+                self.contents.len,
+                null,
+                0,
+                .{},
+                null,
+                null,
+                &gerr,
+            );
+            if (gerr) |err| {
+                defer err.free();
+                log.err(
+                    "failed to export terminal IO events err={s}",
+                    .{err.f_message orelse "(unknown)"},
+                );
+                return;
+            }
+            if (replaced == 0) {
+                log.err("failed to export terminal IO events", .{});
+            }
+        }
+    };
 
     pub fn configChange(
         self: *Application,
