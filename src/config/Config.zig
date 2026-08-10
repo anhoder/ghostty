@@ -908,10 +908,10 @@ palette: Palette = .{},
 /// Enables the ability to move the cursor at prompts by clicking on a
 /// location in the prompt text.
 ///
-/// This feature requires shell integration, specifically prompt marking
-/// via `OSC 133`. Some shells like Fish (v4) and Nu (0.111+) natively
-/// support this while others may require additional configuration or
-/// Ghostty's shell integration features to be enabled.
+/// This feature requires prompt marking via `OSC 133`. Some shells like Fish
+/// (v4.1+) and Nu (0.111+) natively support this while others may require
+/// additional configuration or Ghostty's shell integration features to be
+/// enabled.
 ///
 /// Depending on the shell, this works either by translating your click
 /// position into a series of synthetic arrow key movements or by sending
@@ -1438,9 +1438,9 @@ input: RepeatableReadableIO = .{},
 /// Valid values:
 ///
 ///   * `system` - Respect the system settings for when to show scrollbars.
-///     For example, on macOS, this will respect the "Scrollbar behavior"
-///     system setting which by default usually only shows scrollbars while
-///     actively scrolling or hovering the gutter.
+///     On macOS, we only show scrollbars while actively scrolling or hovering
+///     the gutter. If the system setting is set to "Always", the scrollbar
+///     will be shown when the mouse is over the gutter area.
 ///
 ///   * `never` - Never show a scrollbar. You can still scroll using the mouse,
 ///     keybind actions, etc. but you will not have a visual UI widget showing
@@ -1468,6 +1468,14 @@ link: RepeatableLink = .{},
 /// The URL matcher is always lowest priority of any configured links (see
 /// `link`). If you want to customize URL matching, use `link` and disable this.
 @"link-url": bool = true,
+
+/// Enable hyperlinks created with the OSC 8 escape sequence. When disabled,
+/// OSC 8 hyperlinks are not highlighted, previewed, copied, or opened.
+///
+/// This does not affect URL matching controlled by `link-url`.
+///
+/// Available since: 1.4.0
+@"link-osc8": bool = true,
 
 /// Show link previews for a matched URL.
 ///
@@ -2396,6 +2404,33 @@ keybind: Keybinds = .{},
 ///
 /// Specified as either hex (`#RRGGBB` or `RRGGBB`) or a named X11 color.
 @"window-titlebar-foreground": ?Color = null,
+
+/// Controls when drag handles are shown over splits,
+/// allowing splits to be rearranged with mouse controls.
+///
+/// Valid values:
+///
+///  - `always`
+///
+///    Always display the drag handle, even when there's only one split.
+///
+///  - `auto` *(default)*
+///
+///    Automatically show and hide the drag handle.
+///
+///    On Linux, the handle is only shown when there are two or
+///    more splits present.
+///
+///    On macOS, the handle is only hidden when there's one split
+///    in **fullscreen** mode, otherwise it's shown when hovered.
+///
+///  - `never`
+///
+///    Never show the drag handle. Splits then cannot be rearranged with
+///    mouse controls.
+///
+/// Available since: 1.4.0.
+@"drag-handle": DragHandle = .auto,
 
 /// This controls when resize overlays are shown. Resize overlays are a
 /// transient popup that shows the size of the terminal while the surfaces are
@@ -4744,7 +4779,7 @@ pub fn finalize(self: *Config) !void {
                         var environ_map = try global.environMap();
                         defer environ_map.deinit();
                         var buf: [std.fs.max_path_bytes]u8 = undefined;
-                        if (try internal_os.home(&environ_map, &buf)) |home| {
+                        if (try internal_os.home(global.io(), &environ_map, &buf)) |home| {
                             wd = .{ .path = try alloc.dupe(u8, home) };
                         } else {
                             wd = .inherit;
@@ -5474,7 +5509,7 @@ pub const WorkingDirectory = union(enum) {
         const expanded = expanded: {
             var environ_map = global.environMap() catch |err| break :expanded err;
             defer environ_map.deinit();
-            break :expanded internal_os.expandHome(&environ_map, path, &buf);
+            break :expanded internal_os.expandHome(global.io(), &environ_map, path, &buf);
         } catch |err| {
             log.warn(
                 "error expanding home directory for working-directory path={s}: {}",
@@ -5543,6 +5578,7 @@ pub const WorkingDirectory = union(enum) {
 
             var buf: [std.fs.max_path_bytes]u8 = undefined;
             const expected = internal_os.expandHome(
+                testing.io,
                 &environ_map,
                 "~/projects/ghostty",
                 &buf,
@@ -8822,8 +8858,20 @@ pub const RepeatableCommand = struct {
             self.value.deinit(alloc);
             self.value_c.deinit(alloc);
         }
-        try self.value.appendSlice(alloc, inputpkg.command.defaults);
-        try self.value_c.appendSlice(alloc, inputpkg.command.defaultsC);
+        try self.value.ensureUnusedCapacity(alloc, inputpkg.command.defaults.len);
+        try self.value_c.ensureUnusedCapacity(alloc, inputpkg.command.defaults.len);
+        for (inputpkg.command.defaults) |cmd| {
+            // Translation is currently a GTK-only feature. In particular,
+            // translating these shared strings for the embedded runtime gives
+            // the macOS app a localized command palette in an otherwise
+            // unlocalized UI.
+            const localized = if (comptime build_config.app_runtime == .gtk)
+                cmd.translated()
+            else
+                cmd;
+            self.value.appendAssumeCapacity(localized);
+            self.value_c.appendAssumeCapacity(try localized.cval(alloc));
+        }
     }
 
     pub fn parseCLI(
@@ -9348,6 +9396,13 @@ pub const MacOSDockDropBehavior = enum {
 
 /// See window-show-tab-bar
 pub const WindowShowTabBar = enum {
+    always,
+    auto,
+    never,
+};
+
+/// See drag-handle
+pub const DragHandle = enum {
     always,
     auto,
     never,
@@ -10626,6 +10681,7 @@ test "clone preserves conditional set" {
 
 test "working-directory expands tilde" {
     const testing = std.testing;
+    const io = testing.io;
     const alloc = testing.allocator;
     var environ_map = try testing.environ.createMap(testing.allocator);
     defer environ_map.deinit();
@@ -10640,6 +10696,7 @@ test "working-directory expands tilde" {
 
     var buf: [std.fs.max_path_bytes]u8 = undefined;
     const expected = internal_os.expandHome(
+        io,
         &environ_map,
         "~/projects/ghostty",
         &buf,

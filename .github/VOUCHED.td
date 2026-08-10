@@ -26,6 +26,7 @@
 12ya
 -4rh1t3ct0r7
 52dyd
+a-lang
 aalhendi
 aaron-ang
 abdurrahmanski
@@ -127,8 +128,10 @@ gagbo
 ghokun
 gmile
 gordonbondon
+gotenksin
 gpanders
 guilhermetk
+-guysoft LLM communication (likely automated)
 h3nock
 hakonhagland
 halosatrio
@@ -144,7 +147,7 @@ illiakrauchanka
 j0hnm4r5
 jacobsandlund
 jake-stewart
-jamesarch
+-jamesarch Bad AI etiquette
 jamylak
 jarred-sumner
 jcollie
@@ -181,6 +184,7 @@ lepips
 liby
 linustalacko
 lonsagisawa
+lotheac
 louisunlimited
 luisnquin
 lynicis
@@ -291,6 +295,7 @@ turbolent
 tweedbeetle
 uhojin
 unphased
+unsaltedscholar
 uzaaft
 vancluever
 vaughanandrews
@@ -306,6 +311,7 @@ yak3d
 yamshta
 ydah
 -zaviro
+zenangst
 zenyr
 zeshi09
 zubb

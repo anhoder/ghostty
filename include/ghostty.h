@@ -818,6 +818,7 @@ typedef enum {
   GHOSTTY_ACTION_OPEN_URL_KIND_UNKNOWN,
   GHOSTTY_ACTION_OPEN_URL_KIND_TEXT,
   GHOSTTY_ACTION_OPEN_URL_KIND_HTML,
+  GHOSTTY_ACTION_OPEN_URL_KIND_OSC8,
 } ghostty_action_open_url_kind_e;
 
 // apprt.action.OpenUrl.C
@@ -956,6 +957,7 @@ typedef enum {
   GHOSTTY_ACTION_SEARCH_SELECTED,
   GHOSTTY_ACTION_READONLY,
   GHOSTTY_ACTION_COPY_TITLE_TO_CLIPBOARD,
+  GHOSTTY_ACTION_MOVE_TAB_TO_NEW_WINDOW,
 } ghostty_action_tag_e;
 
 typedef union {
@@ -1063,6 +1065,7 @@ typedef union {
 // apprt.ipc.Action.Key
 typedef enum {
   GHOSTTY_IPC_ACTION_NEW_WINDOW,
+  GHOSTTY_IPC_ACTION_NEW_TAB,
   GHOSTTY_IPC_ACTION_TOGGLE_QUICK_TERMINAL,
 } ghostty_ipc_action_tag_e;
 

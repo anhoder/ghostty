@@ -29,6 +29,7 @@ pub const xdg = @import("xdg.zig");
 pub const windows = @import("windows.zig");
 pub const macos = @import("macos.zig");
 pub const shell = @import("shell.zig");
+pub const stderr = @import("stderr.zig");
 pub const uri = @import("uri.zig");
 
 // Functions and types
@@ -58,6 +59,7 @@ pub const getKernelInfo = kernel_info.getKernelInfo;
 
 test {
     _ = file;
+    _ = stderr;
     _ = i18n;
     _ = path;
     _ = uri;
