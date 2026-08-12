@@ -40,6 +40,7 @@ akimiojr
 alaasdk
 alanmoyano
 alaviss
+alex19ep
 alexbathome
 alexfeijoo44
 alexjuca
@@ -90,6 +91,7 @@ damyanbogoev
 danneu
 danulqua
 dariogriffo
+dave92082
 davidsanchez222
 deblasis
 dervedro
@@ -118,6 +120,7 @@ exlee
 -f1813483-netizen
 fallintoplace
 faukah
+figelwump
 filip7
 flou
 fornwall
@@ -248,6 +251,7 @@ pluiedev
 pouwerkerk
 poweruser64
 prakhar54-byte
+prihlop
 priyans-hu
 puzza007
 qappell
@@ -276,6 +280,7 @@ sanjj1
 secrus
 seruman
 seyoungjeong
+shorsher
 silveirapf
 simonbcn
 slsrepo
