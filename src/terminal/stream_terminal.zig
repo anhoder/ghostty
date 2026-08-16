@@ -1055,7 +1055,7 @@ pub const Handler = struct {
                 }
             },
 
-            .glyph => |*glyph_req| {
+            .glyph => |*glyph_req| if (comptime build_options.glyph_protocol) {
                 const resp = self.terminal.glyphProtocol(alloc, glyph_req);
                 if (resp) |r| resp_block: {
                     // Don't waste time encoding if we can't write responses
@@ -1825,6 +1825,8 @@ test "full reset" {
 }
 
 test "glyph protocol APC with write_pty callback" {
+    if (comptime !build_options.glyph_protocol) return error.SkipZigTest;
+
     var t: Terminal = try .init(testing.io, testing.allocator, .{ .cols = 80, .rows = 24 });
     defer t.deinit(testing.allocator);
 
