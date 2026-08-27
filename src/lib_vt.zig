@@ -50,6 +50,7 @@ pub const sys = terminal.sys;
 pub const TinyIo = @import("lib/TinyIo.zig");
 
 pub const apc = terminal.apc;
+pub const clipboard = terminal.clipboard;
 pub const dcs = terminal.dcs;
 pub const osc = terminal.osc;
 pub const point = terminal.point;
@@ -64,6 +65,7 @@ pub const parse_table = terminal.parse_table;
 pub const search = terminal.search;
 pub const sgr = terminal.sgr;
 pub const size = terminal.size;
+pub const snapshot = terminal.snapshot;
 pub const x11_color = terminal.x11_color;
 
 pub const Charset = terminal.Charset;
@@ -93,6 +95,10 @@ pub const TerminalStream = terminal.TerminalStream;
 pub const Stream = terminal.Stream;
 pub const StreamAction = terminal.StreamAction;
 pub const UnknownSequence = terminal.UnknownSequence;
+
+pub const Paste = terminal.Paste;
+pub const PasteSource = terminal.PasteSource;
+pub const PasteError = terminal.PasteError;
 pub const Cursor = Screen.Cursor;
 pub const CursorStyle = Screen.CursorStyle;
 pub const CursorStyleReq = terminal.CursorStyle;
@@ -127,8 +133,11 @@ pub const input = struct {
     // Paste-related APIs
     pub const PasteError = paste.Error;
     pub const PasteOptions = paste.Options;
+    pub const max_paste_frame_size = paste.max_frame_size;
     pub const isSafePaste = paste.isSafe;
+    pub const isSafePasteWith = paste.isSafeWith;
     pub const encodePaste = paste.encode;
+    pub const encodePasteWriter = paste.encodeWriter;
 
     // Key encoding
     pub const Key = key.Key;
@@ -206,6 +215,7 @@ comptime {
             @export(&c.focus_encode, .{ .name = "ghostty_focus_encode" });
             @export(&c.paste_is_safe, .{ .name = "ghostty_paste_is_safe" });
             @export(&c.paste_encode, .{ .name = "ghostty_paste_encode" });
+            @export(&c.terminal_paste, .{ .name = "ghostty_terminal_paste" });
             @export(&c.mouse_event_new, .{ .name = "ghostty_mouse_event_new" });
             @export(&c.mouse_event_free, .{ .name = "ghostty_mouse_event_free" });
             @export(&c.mouse_event_set_action, .{ .name = "ghostty_mouse_event_set_action" });
@@ -270,6 +280,7 @@ comptime {
         @export(&c.sgr_attribute_value, .{ .name = "ghostty_sgr_attribute_value" });
         if (features.formatter) {
             @export(&c.formatter_terminal_new, .{ .name = "ghostty_formatter_terminal_new" });
+            @export(&c.formatter_format, .{ .name = "ghostty_formatter_format" });
             @export(&c.formatter_format_buf, .{ .name = "ghostty_formatter_format_buf" });
             @export(&c.formatter_format_alloc, .{ .name = "ghostty_formatter_format_alloc" });
             @export(&c.formatter_free, .{ .name = "ghostty_formatter_free" });
@@ -283,12 +294,13 @@ comptime {
             @export(&c.render_state_update, .{ .name = "ghostty_render_state_update" });
             @export(&c.render_state_begin_update, .{ .name = "ghostty_render_state_begin_update" });
             @export(&c.render_state_end_update, .{ .name = "ghostty_render_state_end_update" });
+            @export(&c.render_state_clean, .{ .name = "ghostty_render_state_clean" });
             @export(&c.render_state_get, .{ .name = "ghostty_render_state_get" });
             @export(&c.render_state_get_multi, .{ .name = "ghostty_render_state_get_multi" });
             @export(&c.render_state_set, .{ .name = "ghostty_render_state_set" });
-            @export(&c.render_state_colors_get, .{ .name = "ghostty_render_state_colors_get" });
             @export(&c.render_state_row_iterator_new, .{ .name = "ghostty_render_state_row_iterator_new" });
             @export(&c.render_state_row_iterator_next, .{ .name = "ghostty_render_state_row_iterator_next" });
+            @export(&c.render_state_row_iterator_next_dirty, .{ .name = "ghostty_render_state_row_iterator_next_dirty" });
             @export(&c.render_state_row_get, .{ .name = "ghostty_render_state_row_get" });
             @export(&c.render_state_row_get_multi, .{ .name = "ghostty_render_state_row_get_multi" });
             @export(&c.render_state_row_set, .{ .name = "ghostty_render_state_row_set" });
@@ -399,19 +411,12 @@ comptime {
 
         // On Wasm we need to export our allocator convenience functions.
         if (builtin.target.cpu.arch.isWasm()) {
-            const alloc = @import("lib/allocator/convenience.zig");
+            const alloc = @import("lib/allocator/wasm.zig");
+            @export(&alloc.allocBytes, .{ .name = "ghostty_wasm_alloc" });
+            @export(&alloc.freeBytes, .{ .name = "ghostty_wasm_free" });
             @export(&alloc.allocOpaque, .{ .name = "ghostty_wasm_alloc_opaque" });
             @export(&alloc.freeOpaque, .{ .name = "ghostty_wasm_free_opaque" });
-            @export(&alloc.allocU8Array, .{ .name = "ghostty_wasm_alloc_u8_array" });
-            @export(&alloc.freeU8Array, .{ .name = "ghostty_wasm_free_u8_array" });
-            @export(&alloc.allocU16Array, .{ .name = "ghostty_wasm_alloc_u16_array" });
-            @export(&alloc.freeU16Array, .{ .name = "ghostty_wasm_free_u16_array" });
-            @export(&alloc.allocU8, .{ .name = "ghostty_wasm_alloc_u8" });
-            @export(&alloc.freeU8, .{ .name = "ghostty_wasm_free_u8" });
-            @export(&alloc.allocUsize, .{ .name = "ghostty_wasm_alloc_usize" });
-            @export(&alloc.freeUsize, .{ .name = "ghostty_wasm_free_usize" });
-            @export(&c.wasm_alloc_sgr_attribute, .{ .name = "ghostty_wasm_alloc_sgr_attribute" });
-            @export(&c.wasm_free_sgr_attribute, .{ .name = "ghostty_wasm_free_sgr_attribute" });
+            @export(&alloc.takeOpaque, .{ .name = "ghostty_wasm_take_opaque" });
         }
     }
 }
