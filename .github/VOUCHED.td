@@ -46,6 +46,7 @@ alexfeijoo44
 alexjuca
 alosarjos
 amadeus
+and-rs
 andrejdaskalov
 anhthang
 anmitalidev
@@ -85,6 +86,7 @@ chronologos
 cmwetherell
 crayxt
 craziestowl
+cristeahub
 curtismoncoq
 -cznorth Automated advertising + likely AI communication
 d-dudas
@@ -149,17 +151,20 @@ hakonhagland
 halosatrio
 heaths
 heddxh heddxh
+helium777
 -highimpact-dev Disrespectful AI user
 hlcfan
 hqnna
 hulet
 i999rri
+ibaios
 icodesign
 illiakrauchanka
 j-c-m
 j0hnm4r5
 jacobsandlund
 jake-stewart
+jakeriksen
 -jamesarch Bad AI etiquette
 jamylak
 jarred-sumner
@@ -172,8 +177,10 @@ johnslavik
 jordandm
 josephmart
 jparise
+juaniraggio
 juniqlim
 justonia
+jzillmann
 karesansui-u
 kataokatsuki
 kawarimidoll
@@ -183,10 +190,13 @@ khipp
 kierancanter
 kirwiisp
 kjvdven
+kleshzz
 kloneets
 knu
 -kody-w
+konstantinhudyakov
 koranir
+korikhin
 kostich
 kristina8888
 kristofersoler
@@ -211,6 +221,7 @@ marrocco-simone
 masterflitzer
 matkotiric
 mattn
+mgsloan
 micaeljarniac
 michielvk
 miguelelgallo
@@ -219,6 +230,7 @@ mikailmm
 minorcell
 misairuzame
 mischief
+mistertea
 mitchellh
 miupa
 mjbommar
@@ -234,6 +246,7 @@ mustafa0x
 nagato-yuzuru
 natesmyth
 neo773
+neoto
 neurosnap
 nicholas-ochoa
 nicosuave
@@ -253,6 +266,7 @@ pan93412
 pangoraw
 pauley-unsaturated
 pearkes
+pedronaugusto
 peilingjiang
 peterdavehello
 philocalyst
@@ -298,9 +312,11 @@ sghng
 shorsher
 silveirapf
 simonbcn
+slowdub
 slsrepo
 steven-tk
 sunshine-syz
+svector-anu
 svmhdvn
 tacherasasi
 -tangivis
@@ -309,6 +325,8 @@ tbrundige
 tdgroot
 tdslot
 thirstycrow
+-thomas-trijindev No human in the loop
+thomasfedb
 thoutbeckers
 ticclick
 tnagatomi
