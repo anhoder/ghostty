@@ -1835,6 +1835,7 @@ extension Ghostty {
             let windowTitleFontFamily: String?
             let windowAppearance: NSAppearance?
             let scrollbar: Ghostty.Config.Scrollbar
+            let scrollbarWidth: UInt32
 
             init() {
                 self.backgroundColor = Color(NSColor.windowBackgroundColor)
@@ -1844,6 +1845,7 @@ extension Ghostty {
                 self.windowTitleFontFamily = nil
                 self.windowAppearance = nil
                 self.scrollbar = .system
+                self.scrollbarWidth = 0
             }
 
             init(_ config: Ghostty.Config) {
@@ -1854,6 +1856,7 @@ extension Ghostty {
                 self.windowTitleFontFamily = config.windowTitleFontFamily
                 self.windowAppearance = .init(ghosttyConfig: config)
                 self.scrollbar = config.scrollbar
+                self.scrollbarWidth = config.scrollbarWidth
             }
         }
 

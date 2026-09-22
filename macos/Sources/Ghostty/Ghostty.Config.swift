@@ -711,6 +711,15 @@ extension Ghostty {
             return Scrollbar(rawValue: str) ?? defaultValue
         }
 
+        var scrollbarWidth: UInt32 {
+            let defaultValue: UInt32 = 0
+            guard let config = self.config else { return defaultValue }
+            var v: UInt32 = 0
+            let key = "scrollbar-width"
+            guard ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8))) else { return defaultValue }
+            return v
+        }
+
         var commandPaletteEntries: [Ghostty.Command] {
             guard let config = self.config else { return [] }
             var v: ghostty_config_command_list_s = .init()

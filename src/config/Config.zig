@@ -1451,6 +1451,17 @@ input: RepeatableReadableIO = .{},
 ///     a scrollbar.
 scrollbar: Scrollbar = .system,
 
+/// The width, in points, of the scrollbar knob when shown.
+///
+/// A value of `0` (the default) uses the native system scrollbar width.
+/// On macOS this is the standard overlay scroller: a thin bar that
+/// thickens on hover.
+///
+/// Any non-zero value overrides the knob width with a custom scroller of
+/// the given point size, while keeping the overlay hover behavior. This
+/// currently only applies on macOS.
+@"scrollbar-width": u32 = 0,
+
 /// Match a regular expression against the terminal text and associate clicking
 /// it with an action. This can be used to match URLs, file paths, etc. Actions
 /// can be opening using the system opener (e.g. `open` or `xdg-open`) or

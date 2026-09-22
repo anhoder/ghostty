@@ -186,6 +186,20 @@ class SurfaceScrollView: NSView {
     private func synchronizeAppearance() {
         let scrollbarConfig = surfaceView.derivedConfig.scrollbar
         scrollView.hasVerticalScroller = scrollbarConfig != .never
+        // Apply the configured scrollbar width. A value of 0 keeps the
+        // native system width. Any non-zero value installs a custom
+        // scroller that overrides the knob thickness while keeping the
+        // overlay hover behavior.
+        ScrollbarWidthScroller.width = CGFloat(surfaceView.derivedConfig.scrollbarWidth)
+        if scrollbarConfig != .never {
+            if !(scrollView.verticalScroller is ScrollbarWidthScroller) {
+                let scroller = ScrollbarWidthScroller()
+                scroller.scrollerStyle = .overlay
+                scrollView.verticalScroller = scroller
+            }
+            // Re-tile so a width change takes effect immediately.
+            scrollView.tile()
+        }
         let hasLightBackground = NSColor(surfaceView.derivedConfig.backgroundColor).isLightColor
         // Make sure the scroller’s appearance matches the surface's background color.
         scrollView.appearance = NSAppearance(named: hasLightBackground ? .aqua : .darkAqua)
@@ -391,5 +405,23 @@ class SurfaceScrollView: NSView {
             ],
             owner: self,
             userInfo: nil))
+    }
+}
+
+/// An NSScroller subclass that allows overriding the knob thickness via the
+/// `scrollbar-width` config. AppKit determines scroller width through the
+/// `scrollerWidth(for:scrollerStyle:)` class method, so the configured width
+/// is stored statically and read during tiling. A value of 0 defers to the
+/// native system width.
+class ScrollbarWidthScroller: NSScroller {
+    /// The desired scroller width in points. 0 uses the system default.
+    static var width: CGFloat = 0
+
+    override class func scrollerWidth(
+        for controlSize: NSControl.ControlSize,
+        scrollerStyle: NSScroller.Style
+    ) -> CGFloat {
+        let systemWidth = super.scrollerWidth(for: controlSize, scrollerStyle: scrollerStyle)
+        return width > 0 ? width : systemWidth
     }
 }
