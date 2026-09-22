@@ -783,6 +783,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     .cursor_text = @splat(0),
                     .selection_background_color = @splat(0),
                     .selection_foreground_color = @splat(0),
+                    .pending_scroll = @splat(0),
                 },
                 .bg_image_buffer = undefined,
 
@@ -2408,6 +2409,26 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 1,
                 0,
             };
+
+            // Sub-cell (pixel) scroll offset for smooth scrolling. We read
+            // the surface's pending scroll remainder and hand it to custom
+            // shaders so they can vertically offset the rendered viewport.
+            // Disabled when an application is consuming mouse events (e.g.
+            // nvim) or when we're at the scrollback edges (nothing to reveal).
+            {
+                const surface: *Surface = @fieldParentPtr("renderer", self);
+                var pending_y = surface.mouse.pending_scroll_y;
+                if (pending_y != 0) {
+                    if (surface.io.terminal.flags.mouse_event != .none) {
+                        pending_y = 0;
+                    } else {
+                        const top_left = surface.io.terminal.screens.active.pages.getTopLeft(.viewport);
+                        if (pending_y > 0 and top_left.up(1) == null) pending_y = 0;
+                        if (pending_y < 0 and surface.io.terminal.screens.active.pages.pinIsActive(top_left)) pending_y = 0;
+                    }
+                }
+                uniforms.pending_scroll = .{ 0, @floatCast(pending_y) };
+            }
 
             if (self.cells.getCursorGlyph()) |cursor| {
                 const cursor_width: f32 = @floatFromInt(cursor.glyph_size[0]);

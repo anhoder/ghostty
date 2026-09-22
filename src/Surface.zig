@@ -3675,12 +3675,12 @@ pub fn scrollCallback(
         }
 
         // We scroll by the number of rows in the offset and save the remainder
-        const amount = poff / cell_size;
+        const amount: f64 = @trunc(poff / cell_size);
         assert(@abs(amount) >= 1);
         self.mouse.pending_scroll_y = poff - (amount * cell_size);
 
         // Round towards zero.
-        const delta: isize = @intFromFloat(@trunc(amount));
+        const delta: isize = @intFromFloat(amount);
         assert(@abs(delta) >= 1);
 
         break :y .{ .delta = delta };
@@ -3700,10 +3700,10 @@ pub fn scrollCallback(
             break :x .{};
         }
 
-        const amount = poff / cell_size;
+        const amount: f64 = @trunc(poff / cell_size);
         assert(@abs(amount) >= 1);
         self.mouse.pending_scroll_x = poff - (amount * cell_size);
-        const delta: isize = @intFromFloat(@trunc(amount));
+        const delta: isize = @intFromFloat(amount);
         assert(@abs(delta) >= 1);
         break :x .{ .delta = delta };
     };
