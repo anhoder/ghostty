@@ -563,6 +563,7 @@ pub const Handler = struct {
             .title_push,
             .title_pop,
             .set_user_var,
+            .resize_window,
             => {},
         }
     }

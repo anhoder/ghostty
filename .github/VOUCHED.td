@@ -137,6 +137,7 @@ filip7
 flou
 fornwall
 francescarpi
+francislata
 fru1tworld
 gadgetman6
 gagbo
@@ -250,6 +251,7 @@ neo773
 neoto
 neurosnap
 nicholas-ochoa
+nicolaair
 nicosuave
 nikicat
 nilsherzig
@@ -273,6 +275,7 @@ peterdavehello
 philocalyst
 phush0
 piedrahitac
+pltrz
 pluiedev
 pouwerkerk
 poweruser64
@@ -312,6 +315,7 @@ seruman
 seyoungjeong
 sghng
 shorsher
+shreeve
 silveirapf
 simonbcn
 slowdub
@@ -332,6 +336,7 @@ thomasfedb
 thoutbeckers
 ticclick
 tnagatomi
+toppk
 tothedarktowercame
 trag1c
 tristan957
@@ -353,6 +358,7 @@ vlsi
 voidnv
 williamhcarter
 wyounas
+xandris
 yabbal
 yak3d
 yamshta
@@ -362,4 +368,5 @@ zenangst
 zenyr
 zeshi09
 zlitus
+-zorzysty Meatproxying
 zubb
